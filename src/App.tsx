@@ -15,6 +15,7 @@ import { useDocumentStore } from './store/documentStore'
 import { loadPdfPages, exportModifiedPdf } from './utils/pdfEngine'
 import { MergeItem, mergePdfDocuments, splitPdfByRange, splitPdfEveryNPages } from './utils/mergeSplitEngine'
 import { CompressQuality, compressPdfDocument, encryptPdfDocument } from './utils/compressProtectEngine'
+import { EditableTextBlock } from './utils/textExtractEngine'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard')
@@ -36,6 +37,9 @@ export default function App() {
     setStatus,
     resetDocument,
   } = useDocumentStore()
+
+  // Edited OCR text blocks state
+  const [editedBlocks, setEditedBlocks] = useState<EditableTextBlock[]>([])
 
   // Merge state
   const [mergeFiles, setMergeFiles] = useState<MergeItem[]>([])
@@ -60,8 +64,8 @@ export default function App() {
       const parsedPages = await loadPdfPages(buffer)
       setPages(parsedPages)
       setSplitRange(parsedPages.length > 1 ? `1-${Math.min(3, parsedPages.length)}` : '1')
+      setEditedBlocks([])
       
-      // Jika masih di dashboard saat membuka file, langsung arahkan ke editor
       if (activeTab === 'dashboard') {
         setActiveTab('editor')
       }
@@ -95,7 +99,6 @@ export default function App() {
     } catch (e) {
       console.warn('Native dialog error, falling back to input:', e)
     }
-    // Fallback file input
     fallbackFileInputRef.current?.click()
   }
 
@@ -189,7 +192,7 @@ export default function App() {
       // 5. EDITOR / PAGES / SIGN
       if (!currentPdfBuffer || pages.length === 0) return
       setStatus('Menyimpan perubahan ke PDF...')
-      const outputBytes = await exportModifiedPdf(currentPdfBuffer, pages, annotations)
+      const outputBytes = await exportModifiedPdf(currentPdfBuffer, pages, annotations, editedBlocks)
       const defaultExportName = fileName 
         ? `${fileName.replace(/\.pdf$/i, '')}_edited.pdf` 
         : 'dokumen_diedit.pdf'
@@ -220,7 +223,6 @@ export default function App() {
       console.warn('Native save failed, fallback to download:', e)
     }
 
-    // Fallback standard browser download
     const outBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
     const blob = new Blob([outBuffer], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
@@ -253,7 +255,6 @@ export default function App() {
       {/* 1. Custom Frameless Titlebar */}
       <Titlebar />
 
-      {/* Hidden fallback file input */}
       <input
         ref={fallbackFileInputRef}
         type="file"
@@ -274,7 +275,6 @@ export default function App() {
         />
 
         <main className="flex-1 flex flex-col overflow-hidden bg-[#13151D]/40">
-          {/* TAB 1: DASHBOARD UTAMA */}
           {activeTab === 'dashboard' && (
             <DashboardHome
               onNavigate={setActiveTab}
@@ -284,7 +284,6 @@ export default function App() {
             />
           )}
 
-          {/* TAB 2: GABUNG PDF */}
           {activeTab === 'merge' && (
             <MergeStudio
               files={mergeFiles}
@@ -295,7 +294,6 @@ export default function App() {
             />
           )}
 
-          {/* JIKA BELUM ADA FILE DIBUKA PADA TAB OPERASI TERTENTU */}
           {activeTab !== 'dashboard' && activeTab !== 'merge' && (!currentPdfBuffer || pages.length === 0) && (
             <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-4xl mx-auto w-full">
               <Dropzone
@@ -307,10 +305,11 @@ export default function App() {
             </div>
           )}
 
-          {/* JIKA FILE SUDAH DIBUKA */}
           {activeTab !== 'dashboard' && activeTab !== 'merge' && currentPdfBuffer && pages.length > 0 && (
             <>
-              {activeTab === 'editor' && <PageEditorCanvas />}
+              {activeTab === 'editor' && (
+                <PageEditorCanvas onBlocksUpdated={setEditedBlocks} />
+              )}
               {activeTab === 'pages' && <PageGrid />}
               {activeTab === 'split' && (
                 <SplitStudio

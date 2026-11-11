@@ -2,12 +2,12 @@ import * as pdfjsLib from 'pdfjs-dist'
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib'
 import { PageInfo } from '../store/documentStore'
 import { CanvasAnnotation } from '../types/annotations'
+import { EditableTextBlock } from './textExtractEngine'
 
 // Setup pdfjs worker using local bundled worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.min.js'
 
 export async function loadPdfPages(buffer: ArrayBuffer): Promise<PageInfo[]> {
-  // Use slice() to prevent detaching original buffer when transferred to worker
   const data = new Uint8Array(buffer.slice(0))
   const loadingTask = pdfjsLib.getDocument({ data })
   const pdfDoc = await loadingTask.promise
@@ -16,7 +16,7 @@ export async function loadPdfPages(buffer: ArrayBuffer): Promise<PageInfo[]> {
 
   for (let i = 1; i <= numPages; i++) {
     const page = await pdfDoc.getPage(i)
-    const viewport = page.getViewport({ scale: 0.5 }) // Preview scale
+    const viewport = page.getViewport({ scale: 0.5 })
     pages.push({
       pageIndex: i - 1,
       pageNumber: i,
@@ -32,7 +32,7 @@ export async function loadPdfPages(buffer: ArrayBuffer): Promise<PageInfo[]> {
 export async function renderPageToThumbnail(
   buffer: ArrayBuffer,
   pageNumber: number,
-  scale = 0.6
+  scale = 1.0
 ): Promise<string> {
   const data = new Uint8Array(buffer.slice(0))
   const loadingTask = pdfjsLib.getDocument({ data })
@@ -52,17 +52,19 @@ export async function renderPageToThumbnail(
     viewport: viewport,
   }).promise
 
-  return canvas.toDataURL('image/jpeg', 0.85)
+  return canvas.toDataURL('image/jpeg', 0.92)
 }
 
 export async function exportModifiedPdf(
   originalBuffer: ArrayBuffer,
   pages: PageInfo[],
-  annotations: CanvasAnnotation[] = []
+  annotations: CanvasAnnotation[] = [],
+  editedBlocks: EditableTextBlock[] = []
 ): Promise<Uint8Array> {
   const srcDoc = await PDFDocument.load(originalBuffer.slice(0))
   const outDoc = await PDFDocument.create()
   const helveticaFont = await outDoc.embedFont(StandardFonts.Helvetica)
+  const helveticaBold = await outDoc.embedFont(StandardFonts.HelveticaBold)
 
   for (let i = 0; i < pages.length; i++) {
     const pageInfo = pages[i]
@@ -74,18 +76,45 @@ export async function exportModifiedPdf(
 
     const { width, height } = copiedPage.getSize()
 
-    // Burn annotations for this page
+    // 1. Burn ONLY edited text blocks (Preserve untouched original vector PDF completely)
+    const pageEditedBlocks = editedBlocks.filter((b) => b.isEdited && b.id.includes(`_${pageInfo.pageNumber}_`))
+    for (const b of pageEditedBlocks) {
+      const pdfX = (b.x / 100) * width
+      const pdfY = height - (b.y / 100) * height
+      const boxW = (b.width / 100) * width + 2
+      const boxH = (b.height / 100) * height + 2
+
+      // Clean whiteout only over this specific edited line
+      copiedPage.drawRectangle({
+        x: pdfX - 1,
+        y: pdfY - boxH,
+        width: boxW,
+        height: boxH,
+        color: rgb(1, 1, 1),
+      })
+
+      // Draw replacement text exactly on position
+      const useBold = b.fontFamily.toLowerCase().includes('bold')
+      copiedPage.drawText(b.str, {
+        x: pdfX,
+        y: pdfY - boxH + 2,
+        size: b.fontSize || 12,
+        font: useBold ? helveticaBold : helveticaFont,
+        color: rgb(0, 0, 0),
+      })
+    }
+
+    // 2. Burn User Annotations (Custom Text, Whiteout, Images, Signatures)
     const pageAnnotations = annotations.filter((a) => a.pageIndex === i)
     for (const ann of pageAnnotations) {
       const pdfX = (ann.x / 100) * width
-      // PDF coordinate system starts from bottom-left
       const pdfY = height - (ann.y / 100) * height
 
       if (ann.type === 'text' && ann.text) {
         copiedPage.drawText(ann.text, {
           x: pdfX,
           y: pdfY - 14,
-          size: ann.fontSize || 16,
+          size: ann.fontSize || 15,
           font: helveticaFont,
           color: rgb(0, 0, 0),
         })
