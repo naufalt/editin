@@ -9,19 +9,13 @@ import {
   ZoomIn, 
   ZoomOut,
   RotateCcw,
-  Sparkles,
   Move
 } from 'lucide-react'
 import { useDocumentStore } from '../../store/documentStore'
 import { CanvasAnnotation } from '../../types/annotations'
 import { renderPageToThumbnail } from '../../utils/pdfEngine'
-import { extractPageTextBlocks, EditableTextBlock } from '../../utils/textExtractEngine'
 
-interface PageEditorCanvasProps {
-  onBlocksUpdated?: (blocks: EditableTextBlock[]) => void
-}
-
-export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpdated }) => {
+export const PageEditorCanvas: React.FC = () => {
   const {
     currentPdfBuffer,
     pages,
@@ -39,13 +33,10 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
-  const [textBlocks, setTextBlocks] = useState<EditableTextBlock[]>([])
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
   const [activeTool, setActiveTool] = useState<'select' | 'text' | 'whiteout' | 'pan'>('select')
   const [isDraggingElement, setIsDraggingElement] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [isLoadingBlocks, setIsLoadingBlocks] = useState(false)
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -54,38 +45,15 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
   const currentPage = pages[activePageIndex]
   const currentAnnotations = annotations.filter((a) => a.pageIndex === activePageIndex)
 
-  // 1. Render high-res visual background of current page
+  // 1. Render high-res crisp visual background of original PDF
   useEffect(() => {
     if (!currentPdfBuffer || !currentPage) return
-    renderPageToThumbnail(currentPdfBuffer, currentPage.pageIndex + 1, 1.8)
+    renderPageToThumbnail(currentPdfBuffer, currentPage.pageIndex + 1, 2.0)
       .then((url) => setPageImageUrl(url))
       .catch((err) => console.error('Failed to render editor page preview:', err))
   }, [currentPdfBuffer, currentPage])
 
-  // 2. AUTOMATIC SCAN / OCR: Runs seamlessly in background as soon as page loads
-  useEffect(() => {
-    if (!currentPdfBuffer || !currentPage) return
-    let isCancelled = false
-
-    setIsLoadingBlocks(true)
-    extractPageTextBlocks(currentPdfBuffer, currentPage.pageIndex + 1)
-      .then((blocks) => {
-        if (!isCancelled) {
-          setTextBlocks(blocks)
-          onBlocksUpdated?.(blocks)
-        }
-      })
-      .catch((e) => console.error('Background OCR error:', e))
-      .finally(() => {
-        if (!isCancelled) setIsLoadingBlocks(false)
-      })
-
-    return () => {
-      isCancelled = true
-    }
-  }, [currentPdfBuffer, currentPage?.pageIndex])
-
-  // 3. NATIVE TOUCHPAD GESTURES: Pinch-to-zoom (Ctrl+Wheel) & 2-finger pan
+  // 2. NATIVE TOUCHPAD GESTURES: Pinch-to-zoom (Ctrl+Wheel) & 2-finger pan
   useEffect(() => {
     const viewport = viewportRef.current
     if (!viewport) return
@@ -94,7 +62,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
       e.preventDefault()
 
       if (e.ctrlKey) {
-        // Pinch-to-zoom gesture on Windows Precision Touchpad
+        // Pinch-to-zoom gesture on Touchpad
         const zoomDelta = -e.deltaY * 0.005
         setZoomScale((prev) => Math.min(Math.max(0.5, prev + zoomDelta), 2.5))
       } else {
@@ -112,7 +80,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
     }
   }, [])
 
-  // Mouse pan handlers (when middle click or space/pan tool is active)
+  // Mouse pan handlers
   const handleViewportMouseDown = (e: React.MouseEvent) => {
     if (activeTool === 'pan' || e.button === 1 || e.altKey) {
       setIsPanning(true)
@@ -146,24 +114,6 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
     setIsDraggingElement(false)
   }
 
-  // Update text block when user edits a scanned line
-  const handleBlockTextChange = (id: string, newText: string) => {
-    setTextBlocks((prev) => {
-      const updated = prev.map((b) => {
-        if (b.id === id) {
-          return {
-            ...b,
-            str: newText,
-            isEdited: newText !== b.originalStr,
-          }
-        }
-        return b
-      })
-      onBlocksUpdated?.(updated)
-      return updated
-    })
-  }
-
   // Canvas click to add user elements
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (activeTool === 'select' || activeTool === 'pan' || !containerRef.current) return
@@ -178,8 +128,8 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
         type: 'text',
         x: Math.min(Math.max(clickX, 5), 85),
         y: Math.min(Math.max(clickY, 5), 90),
-        text: 'Ketik teks di sini...',
-        fontSize: 15,
+        text: 'Ketik teks baru...',
+        fontSize: 14,
         color: '#000000',
       }
       addAnnotation(newAnnotation)
@@ -190,10 +140,10 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
         id: `whiteout_${Date.now()}`,
         pageIndex: activePageIndex,
         type: 'whiteout',
-        x: Math.min(Math.max(clickX - 10, 5), 80),
-        y: Math.min(Math.max(clickY - 2.5, 5), 90),
-        width: 25,
-        height: 5,
+        x: Math.min(Math.max(clickX - 5, 2), 85),
+        y: Math.min(Math.max(clickY - 1.5, 2), 90),
+        width: 18,
+        height: 3.5,
       }
       addAnnotation(newAnnotation)
       setSelectedAnnotationId(newAnnotation.id)
@@ -214,8 +164,8 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
         type: 'image',
         x: 35,
         y: 35,
-        width: 30,
-        height: 20,
+        width: 25,
+        height: 15,
         imageDataUrl: dataUrl,
       }
       addAnnotation(newAnnotation)
@@ -228,7 +178,6 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
   const handleAnnotationMouseDown = (e: React.MouseEvent, ann: CanvasAnnotation) => {
     e.stopPropagation()
     setSelectedAnnotationId(ann.id)
-    setSelectedBlockId(null)
     setIsDraggingElement(true)
     if (!containerRef.current) return
     const rect = containerRef.current.getBoundingClientRect()
@@ -251,16 +200,9 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
       <div className="h-14 border-b border-white/5 px-6 flex items-center justify-between bg-[#13151D] z-20">
         {/* Left: Tools */}
         <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
-            <Sparkles size={14} className={isLoadingBlocks ? "animate-spin" : "text-indigo-400"} />
-            <span>{isLoadingBlocks ? 'Memindai Teks...' : 'Teks Siap Diklik & Diedit'}</span>
-          </div>
-
-          <div className="h-5 w-px bg-white/10 mx-1" />
-
           <button
             onClick={() => setActiveTool(activeTool === 'text' ? 'select' : 'text')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
               activeTool === 'text'
                 ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-400'
                 : 'bg-white/5 hover:bg-white/10 text-slate-300'
@@ -271,8 +213,21 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
           </button>
 
           <button
+            onClick={() => setActiveTool(activeTool === 'whiteout' ? 'select' : 'whiteout')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+              activeTool === 'whiteout'
+                ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400'
+                : 'bg-white/5 hover:bg-white/10 text-slate-300'
+            }`}
+            title="Tutup teks lama dengan kotak putih sebelum menuliskan teks baru"
+          >
+            <Eraser size={14} />
+            <span>Tipex / Tutup Teks</span>
+          </button>
+
+          <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold flex items-center space-x-1.5 transition-all"
+            className="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold flex items-center space-x-1.5 transition-all"
           >
             <ImageIcon size={14} />
             <span>+ Foto/Logo</span>
@@ -285,17 +240,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
             onChange={handleImageUpload}
           />
 
-          <button
-            onClick={() => setActiveTool(activeTool === 'whiteout' ? 'select' : 'whiteout')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all ${
-              activeTool === 'whiteout'
-                ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300'
-            }`}
-          >
-            <Eraser size={14} />
-            <span>Tipex</span>
-          </button>
+          <div className="h-5 w-px bg-white/10 mx-1" />
 
           <button
             onClick={() => setActiveTool(activeTool === 'pan' ? 'select' : 'pan')}
@@ -314,13 +259,14 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
         {/* Center: Selected Element Controls */}
         {selectedAnnotationId && (
           <div className="flex items-center space-x-2 px-3 py-1 rounded-xl bg-white/5 border border-white/10">
-            <span className="text-[11px] text-slate-400">Elemen Tambahan:</span>
+            <span className="text-[11px] text-slate-400">Elemen Terpilih:</span>
             <button
               onClick={() => {
                 removeAnnotation(selectedAnnotationId)
                 setSelectedAnnotationId(null)
               }}
               className="p-1 rounded-lg bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white transition-colors"
+              title="Hapus Elemen"
             >
               <Trash2 size={13} />
             </button>
@@ -388,10 +334,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
         className={`flex-1 overflow-hidden relative flex items-center justify-center ${
           activeTool === 'pan' || isPanning ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
         }`}
-        onClick={() => {
-          setSelectedAnnotationId(null)
-          setSelectedBlockId(null)
-        }}
+        onClick={() => setSelectedAnnotationId(null)}
       >
         <div
           ref={containerRef}
@@ -403,7 +346,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
           }}
           className="relative bg-white shadow-2xl rounded-sm overflow-hidden select-none border border-black/10 shrink-0"
         >
-          {/* 1. Base Original PDF Render Image (Preserves 100% Original Vector Visuals) */}
+          {/* Base Original PDF Render Image (100% Original Vector & Crisp Layout) */}
           {pageImageUrl ? (
             <img
               src={pageImageUrl}
@@ -416,46 +359,28 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
             </div>
           )}
 
-          {/* 2. Interactive Scanned OCR Text Blocks (Seamless Inline Layer) */}
-          {textBlocks.map((block) => {
-            const isSelected = block.id === selectedBlockId
-            const isEdited = block.isEdited
-
-            return (
-              <div
-                key={block.id}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedBlockId(block.id)
-                  setSelectedAnnotationId(null)
-                }}
-                style={{
-                  left: `${block.x}%`,
-                  top: `${block.y}%`,
-                  width: `${block.width}%`,
-                  height: `${block.height}%`,
-                }}
-                className={`absolute z-10 transition-colors flex items-center ${
-                  isEdited ? 'bg-white' : isSelected ? 'bg-indigo-50/80 ring-1 ring-indigo-500' : 'hover:bg-indigo-50/30'
-                }`}
-                title="Klik untuk mengubah teks"
-              >
-                <input
-                  type="text"
-                  value={block.str}
-                  onChange={(e) => handleBlockTextChange(block.id, e.target.value)}
-                  style={{
-                    fontSize: `${block.fontSize}px`,
-                  }}
-                  className="w-full h-full bg-transparent border-none outline-none text-black px-0.5 leading-none font-sans"
-                />
-              </div>
-            )
-          })}
-
-          {/* 3. User Annotations (Custom Text, Whiteout & Images) */}
+          {/* User Annotations: Tipex, Teks Baru, Gambar */}
           {currentAnnotations.map((ann) => {
             const isSelected = ann.id === selectedAnnotationId
+
+            if (ann.type === 'whiteout') {
+              return (
+                <div
+                  key={ann.id}
+                  onMouseDown={(e) => handleAnnotationMouseDown(e, ann)}
+                  style={{
+                    left: `${ann.x}%`,
+                    top: `${ann.y}%`,
+                    width: `${ann.width || 18}%`,
+                    height: `${ann.height || 3.5}%`,
+                  }}
+                  className={`absolute z-10 bg-white cursor-move shadow-xs ${
+                    isSelected ? 'ring-2 ring-amber-500' : 'hover:ring-1 hover:ring-amber-300'
+                  }`}
+                  title="Tipex Putih (Geser untuk menutupi teks lama)"
+                />
+              )
+            }
 
             if (ann.type === 'text') {
               return (
@@ -481,25 +406,6 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({ onBlocksUpda
                     className="bg-transparent border-b border-transparent hover:border-indigo-300 focus:border-indigo-500 focus:bg-white outline-none px-0.5 font-sans leading-tight"
                   />
                 </div>
-              )
-            }
-
-            if (ann.type === 'whiteout') {
-              return (
-                <div
-                  key={ann.id}
-                  onMouseDown={(e) => handleAnnotationMouseDown(e, ann)}
-                  style={{
-                    left: `${ann.x}%`,
-                    top: `${ann.y}%`,
-                    width: `${ann.width || 20}%`,
-                    height: `${ann.height || 4}%`,
-                  }}
-                  className={`absolute z-20 bg-white cursor-move ${
-                    isSelected ? 'ring-2 ring-amber-500' : ''
-                  }`}
-                  title="Tipex Putih"
-                />
               )
             }
 

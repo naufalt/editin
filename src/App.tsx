@@ -15,7 +15,6 @@ import { useDocumentStore } from './store/documentStore'
 import { loadPdfPages, exportModifiedPdf } from './utils/pdfEngine'
 import { MergeItem, mergePdfDocuments, splitPdfByRange, splitPdfEveryNPages } from './utils/mergeSplitEngine'
 import { CompressQuality, compressPdfDocument, encryptPdfDocument } from './utils/compressProtectEngine'
-import { EditableTextBlock } from './utils/textExtractEngine'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard')
@@ -37,9 +36,6 @@ export default function App() {
     setStatus,
     resetDocument,
   } = useDocumentStore()
-
-  // Edited OCR text blocks state
-  const [editedBlocks, setEditedBlocks] = useState<EditableTextBlock[]>([])
 
   // Merge state
   const [mergeFiles, setMergeFiles] = useState<MergeItem[]>([])
@@ -64,7 +60,6 @@ export default function App() {
       const parsedPages = await loadPdfPages(buffer)
       setPages(parsedPages)
       setSplitRange(parsedPages.length > 1 ? `1-${Math.min(3, parsedPages.length)}` : '1')
-      setEditedBlocks([])
       
       if (activeTab === 'dashboard') {
         setActiveTab('editor')
@@ -189,10 +184,10 @@ export default function App() {
         return
       }
 
-      // 5. EDITOR / PAGES / SIGN
+      // 5. EDITOR / PAGES / SIGN (Simpan Hasil Editan Bersih)
       if (!currentPdfBuffer || pages.length === 0) return
       setStatus('Menyimpan perubahan ke PDF...')
-      const outputBytes = await exportModifiedPdf(currentPdfBuffer, pages, annotations, editedBlocks)
+      const outputBytes = await exportModifiedPdf(currentPdfBuffer, pages, annotations)
       const defaultExportName = fileName 
         ? `${fileName.replace(/\.pdf$/i, '')}_edited.pdf` 
         : 'dokumen_diedit.pdf'
@@ -307,9 +302,7 @@ export default function App() {
 
           {activeTab !== 'dashboard' && activeTab !== 'merge' && currentPdfBuffer && pages.length > 0 && (
             <>
-              {activeTab === 'editor' && (
-                <PageEditorCanvas onBlocksUpdated={setEditedBlocks} />
-              )}
+              {activeTab === 'editor' && <PageEditorCanvas />}
               {activeTab === 'pages' && <PageGrid />}
               {activeTab === 'split' && (
                 <SplitStudio
