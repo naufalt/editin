@@ -65,6 +65,8 @@ export async function exportModifiedPdf(
   const outDoc = await PDFDocument.create()
   const helveticaFont = await outDoc.embedFont(StandardFonts.Helvetica)
   const helveticaBold = await outDoc.embedFont(StandardFonts.HelveticaBold)
+  const helveticaOblique = await outDoc.embedFont(StandardFonts.HelveticaOblique)
+  const helveticaBoldOblique = await outDoc.embedFont(StandardFonts.HelveticaBoldOblique)
 
   for (let i = 0; i < pages.length; i++) {
     const pageInfo = pages[i]
@@ -77,31 +79,40 @@ export async function exportModifiedPdf(
     const { width, height } = copiedPage.getSize()
 
     // 1. Burn ONLY edited text blocks (Preserve untouched original vector PDF completely)
-    const pageEditedBlocks = editedBlocks.filter((b) => b.isEdited && b.id.includes(`_${pageInfo.pageNumber}_`))
-    for (const b of pageEditedBlocks) {
-      const pdfX = (b.x / 100) * width
-      const pdfY = height - (b.y / 100) * height
-      const boxW = (b.width / 100) * width + 2
-      const boxH = (b.height / 100) * height + 2
+    const pageEditedBlocks = editedBlocks.filter(
+      (b) => b.isEdited && b.pageNumber === pageInfo.pageIndex + 1
+    )
 
-      // Clean whiteout only over this specific edited line
+    for (const b of pageEditedBlocks) {
+      // Mask out original text cleanly with exact PDF coordinates + tiny 1pt padding
+      const maskX = b.pdfX - 1
+      const maskY = b.pdfBaselineY - b.pdfFontSize * 0.24
+      const maskW = b.pdfWidth + 2
+      const maskH = b.pdfFontSize * 1.15
+
       copiedPage.drawRectangle({
-        x: pdfX - 1,
-        y: pdfY - boxH,
-        width: boxW,
-        height: boxH,
+        x: maskX,
+        y: maskY,
+        width: maskW,
+        height: maskH,
         color: rgb(1, 1, 1),
       })
 
-      // Draw replacement text exactly on position
-      const useBold = b.fontFamily.toLowerCase().includes('bold')
-      copiedPage.drawText(b.str, {
-        x: pdfX,
-        y: pdfY - boxH + 2,
-        size: b.fontSize || 12,
-        font: useBold ? helveticaBold : helveticaFont,
-        color: rgb(0, 0, 0),
-      })
+      // Draw replacement text on exact baseline if non-empty
+      if (b.str.trim().length > 0) {
+        let fontToUse = helveticaFont
+        if (b.isBold && b.isItalic) fontToUse = helveticaBoldOblique
+        else if (b.isBold) fontToUse = helveticaBold
+        else if (b.isItalic) fontToUse = helveticaOblique
+
+        copiedPage.drawText(b.str, {
+          x: b.pdfX,
+          y: b.pdfBaselineY,
+          size: b.pdfFontSize || 11,
+          font: fontToUse,
+          color: rgb(0, 0, 0),
+        })
+      }
     }
 
     // 2. Burn User Annotations (Custom Text, Whiteout, Images, Signatures)
