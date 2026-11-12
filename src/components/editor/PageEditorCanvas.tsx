@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { useDocumentStore } from '../../store/documentStore'
 import { CanvasAnnotation } from '../../types/annotations'
-import { renderPageToCanvas } from '../../utils/pdfEngine'
+import { renderPageToCanvas, exportModifiedPdf } from '../../utils/pdfEngine'
 import { extractPageTextBlocks, EditableTextBlock, DetectedFontCategory, sanitizePdfText } from '../../utils/textExtractEngine'
 
 interface PageEditorCanvasProps {
@@ -72,13 +72,13 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
     const loadPageAndExtract = async () => {
       try {
         setIsScanning(true)
-        const canvas = await renderPageToCanvas(currentPdfBuffer, currentPageNumber, 2.0)
+        const baseCanvas = await renderPageToCanvas(currentPdfBuffer, currentPageNumber, 2.0)
         if (isCancelled) return
-        setPageImageUrl(canvas.toDataURL('image/jpeg', 0.94))
+        setPageImageUrl(baseCanvas.toDataURL('image/jpeg', 0.94))
 
         const alreadyExtracted = editedBlocksRef.current.some((b) => b.pageNumber === currentPageNumber)
         if (!alreadyExtracted) {
-          const newBlocks = await extractPageTextBlocks(currentPdfBuffer, currentPageNumber, canvas)
+          const newBlocks = await extractPageTextBlocks(currentPdfBuffer, currentPageNumber, baseCanvas)
           if (!isCancelled) {
             onBlocksChange([...editedBlocksRef.current, ...newBlocks])
           }
@@ -95,6 +95,46 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
       isCancelled = true
     }
   }, [currentPdfBuffer, currentPageNumber])
+
+  // 1b. Live 1:1 PDF Vector Preview: whenever any block on this page is edited, re-render the actual modified PDF page
+  // so what the user sees on screen is 100% the true PDF vector glyphs (identical to the original PDF and exported file!)
+  useEffect(() => {
+    if (!currentPdfBuffer || !currentPage) return
+    const hasEditsOnPage = currentPageBlocks.some((b) => b.isEdited)
+    let isCancelled = false
+
+    const timer = setTimeout(async () => {
+      try {
+        if (!hasEditsOnPage) {
+          const baseCanvas = await renderPageToCanvas(currentPdfBuffer, currentPageNumber, 2.0)
+          if (!isCancelled) setPageImageUrl(baseCanvas.toDataURL('image/jpeg', 0.94))
+          return
+        }
+        const modBytes = await exportModifiedPdf(
+          currentPdfBuffer,
+          pages,
+          [],
+          editedBlocksRef.current
+        )
+        if (isCancelled) return
+        const modBuffer = modBytes.buffer.slice(
+          modBytes.byteOffset,
+          modBytes.byteOffset + modBytes.byteLength
+        ) as ArrayBuffer
+        const modCanvas = await renderPageToCanvas(modBuffer, activePageIndex + 1, 2.0)
+        if (!isCancelled) {
+          setPageImageUrl(modCanvas.toDataURL('image/jpeg', 0.94))
+        }
+      } catch (e) {
+        console.warn('Live PDF vector preview update skipped:', e)
+      }
+    }, 80)
+
+    return () => {
+      isCancelled = true
+      clearTimeout(timer)
+    }
+  }, [editedBlocks, currentPdfBuffer, currentPageNumber, activePageIndex])
 
   // Track rendered image height so font sizes match exact 1:1 scale
   useEffect(() => {
@@ -565,8 +605,8 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
           {/* 2. True 1:1 Native Text Editing Layer */}
           {currentPageBlocks.map((block) => {
             const isSelected = block.id === selectedBlockId
-            const isEdited = block.isEdited
-            const showEditor = isSelected || isEdited
+            // Only show the HTML input while actively selected & typing; once unselected, the live PDF vector canvas underneath shows the 100% native PDF glyphs!
+            const showEditor = isSelected
 
             // Exact 1:1 pixel font size matching the PDF font metric
             const exactFontSizePx = (block.fontSizeRatio / 100) * renderedPageHeightPx
@@ -576,7 +616,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
                 ? 'Georgia, "Times New Roman", Times, serif'
                 : category === 'mono'
                 ? '"Consolas", "Courier New", monospace'
-                : '"Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif'
+                : '"EditInSans", "Inter", Arial, Helvetica, sans-serif'
 
             return (
               <div
@@ -607,6 +647,11 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
                     autoFocus={isSelected}
                     value={block.str}
                     onChange={(e) => handleUpdateBlock(block.id, { str: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === 'Escape') {
+                        setSelectedBlockId(null)
+                      }
+                    }}
                     style={{
                       fontSize: `${exactFontSizePx}px`,
                       lineHeight: '1',

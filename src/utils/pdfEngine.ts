@@ -1,8 +1,9 @@
 import * as pdfjsLib from 'pdfjs-dist'
-import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib'
+import { PDFDocument, PDFOperator, PDFNumber, degrees, rgb, StandardFonts } from 'pdf-lib'
 import { PageInfo } from '../store/documentStore'
 import { CanvasAnnotation } from '../types/annotations'
 import { EditableTextBlock, sanitizePdfText } from './textExtractEngine'
+import { extractPageNativeFonts, tryDrawWithNativePageFonts } from './nativePdfFontEngine'
 
 // Setup pdfjs worker using local bundled worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.min.js'
@@ -118,10 +119,15 @@ export async function exportModifiedPdf(
 
     const { width, height } = copiedPage.getSize()
 
-    // 1. Burn ONLY edited text blocks with 1:1 sampled background color, text color & exact font category
+    // 1. Burn ONLY edited text blocks with 1:1 sampled background color, text color & native PDF font
     const pageEditedBlocks = editedBlocks.filter(
       (b) => b.isEdited && b.pageNumber === pageInfo.pageIndex + 1
     )
+
+    // Extract the page's own native embedded PDF fonts (ToUnicode + Widths)
+    const nativePageFonts = pageEditedBlocks.length > 0
+      ? extractPageNativeFonts(outDoc, copiedPage)
+      : []
 
     for (const b of pageEditedBlocks) {
       const bgRgb = hexToRgbNormalized(b.bgColor || '#ffffff')
@@ -143,33 +149,74 @@ export async function exportModifiedPdf(
 
       const cleanText = sanitizePdfText(b.str)
       if (cleanText.trim().length > 0) {
+        const ptSize = b.pdfFontSize || 11
         const category = b.fontCategory || 'sans'
 
-        let fontToUse = helvetica
-        if (category === 'mono') {
-          if (b.isBold && b.isItalic) fontToUse = courierBoldOblique
-          else if (b.isBold) fontToUse = courierBold
-          else if (b.isItalic) fontToUse = courierOblique
-          else fontToUse = courier
-        } else if (category === 'serif') {
-          if (b.isBold && b.isItalic) fontToUse = timesBoldItalic
-          else if (b.isBold) fontToUse = timesBold
-          else if (b.isItalic) fontToUse = timesItalic
-          else fontToUse = times
-        } else {
-          if (b.isBold && b.isItalic) fontToUse = helveticaBoldOblique
-          else if (b.isBold) fontToUse = helveticaBold
-          else if (b.isItalic) fontToUse = helveticaOblique
-          else fontToUse = helvetica
+        // First try drawing with the PDF's own native embedded font (100% identical glyphs & metrics!)
+        let drawnWithNative = false
+        if (category === 'sans' && !b.isBold && !b.isItalic) {
+          drawnWithNative = tryDrawWithNativePageFonts(
+            copiedPage,
+            nativePageFonts,
+            cleanText,
+            b.pdfX,
+            b.pdfBaselineY,
+            ptSize,
+            fgRgb,
+            b.realFontName
+          )
         }
 
-        copiedPage.drawText(cleanText, {
-          x: b.pdfX,
-          y: b.pdfBaselineY,
-          size: b.pdfFontSize || 11,
-          font: fontToUse,
-          color: rgb(fgRgb.r, fgRgb.g, fgRgb.b),
-        })
+        if (!drawnWithNative) {
+          let fontToUse = helvetica
+          if (category === 'mono') {
+            if (b.isBold && b.isItalic) fontToUse = courierBoldOblique
+            else if (b.isBold) fontToUse = courierBold
+            else if (b.isItalic) fontToUse = courierOblique
+            else fontToUse = courier
+          } else if (category === 'serif') {
+            if (b.isBold && b.isItalic) fontToUse = timesBoldItalic
+            else if (b.isBold) fontToUse = timesBold
+            else if (b.isItalic) fontToUse = timesItalic
+            else fontToUse = times
+          } else {
+            if (b.isBold && b.isItalic) fontToUse = helveticaBoldOblique
+            else if (b.isBold) fontToUse = helveticaBold
+            else if (b.isItalic) fontToUse = helveticaOblique
+            else fontToUse = helvetica
+          }
+
+          // Calculate exact character spacing (Tc) calibration so standard font matches original glyph width 1:1
+          let calibratedTc = 0
+          const origClean = sanitizePdfText(b.originalStr || '')
+          if (origClean.length > 1 && b.pdfWidth > 0) {
+            try {
+              const stdOrigWidth = fontToUse.widthOfTextAtSize(origClean, ptSize)
+              const rawDiffPerChar = (b.pdfWidth - stdOrigWidth) / origClean.length
+              if (Math.abs(rawDiffPerChar) <= ptSize * 0.15) {
+                calibratedTc = rawDiffPerChar
+              }
+            } catch {
+              calibratedTc = 0
+            }
+          }
+
+          if (calibratedTc !== 0) {
+            copiedPage.pushOperators(PDFOperator.of('Tc' as any, [PDFNumber.of(calibratedTc)]))
+          }
+
+          copiedPage.drawText(cleanText, {
+            x: b.pdfX,
+            y: b.pdfBaselineY,
+            size: ptSize,
+            font: fontToUse,
+            color: rgb(fgRgb.r, fgRgb.g, fgRgb.b),
+          })
+
+          if (calibratedTc !== 0) {
+            copiedPage.pushOperators(PDFOperator.of('Tc' as any, [PDFNumber.of(0)]))
+          }
+        }
       }
     }
 

@@ -61,7 +61,6 @@ export function classifyFontName(rawName: string): {
     lower.includes('heavy') ||
     lower.includes('semibold') ||
     lower.includes('demi') ||
-    lower.includes('medium') ||
     lower.endsWith('-bd') ||
     lower.endsWith(',bold')
 
@@ -313,6 +312,8 @@ export async function extractPageTextBlocks(
     // Sample background color and foreground ink color from rendered canvas
     let bgColor = '#ffffff'
     let textColor = '#111827'
+    let effectiveFontSizeRatio = fontSizeRatio
+    let effectivePdfFontSize = maxH
 
     if (ctx && renderedCanvas) {
       try {
@@ -330,25 +331,61 @@ export async function extractPageTextBlocks(
           bgColor = rgbToHex(bgPixel[0], bgPixel[1], bgPixel[2])
         }
 
-        const imgData = ctx.getImageData(pxX, pxY, Math.min(pxW, 40), pxH).data
-        let minLum = 9999
-        let bestR = 17
-        let bestG = 24
-        let bestB = 39
+        // Sample ink color from non-anti-aliased core pixels (darkest 25% of dark pixels)
+        const imgData = ctx.getImageData(pxX, pxY, Math.min(pxW, 60), pxH).data
+        const bgLum = 0.299 * bgPixel[0] + 0.587 * bgPixel[1] + 0.114 * bgPixel[2]
+        const inkPixels: { r: number; g: number; b: number; lum: number }[] = []
+
         for (let p = 0; p < imgData.length; p += 4) {
           const r = imgData[p]
           const g = imgData[p + 1]
           const b = imgData[p + 2]
           const lum = 0.299 * r + 0.587 * g + 0.114 * b
-          if (lum < minLum) {
-            minLum = lum
-            bestR = r
-            bestG = g
-            bestB = b
+          if (Math.abs(bgLum - lum) > 35) {
+            inkPixels.push({ r, g, b, lum })
           }
         }
-        if (minLum < 225) {
-          textColor = rgbToHex(bestR, bestG, bestB)
+
+        if (inkPixels.length > 0) {
+          inkPixels.sort((a, b) => a.lum - b.lum)
+          const coreCount = Math.max(1, Math.ceil(inkPixels.length * 0.25))
+          let sumR = 0
+          let sumG = 0
+          let sumB = 0
+          for (let i = 0; i < coreCount; i++) {
+            sumR += inkPixels[i].r
+            sumG += inkPixels[i].g
+            sumB += inkPixels[i].b
+          }
+          textColor = rgbToHex(sumR / coreCount, sumG / coreCount, sumB / coreCount)
+        }
+        // Measure ACTUAL visual cap-height (topmost to bottommost ink pixel row) for 1:1 visual sizing
+        const fullBoxData = ctx.getImageData(pxX, pxY, pxW, pxH).data
+        let minInkRow = pxH
+        let maxInkRow = -1
+        for (let rIdx = 0; rIdx < pxH; rIdx++) {
+          for (let cIdx = 0; cIdx < pxW; cIdx++) {
+            const off = (rIdx * pxW + cIdx) * 4
+            const lum = 0.299 * fullBoxData[off] + 0.587 * fullBoxData[off + 1] + 0.114 * fullBoxData[off + 2]
+            if (Math.abs(bgLum - lum) > 40) {
+              if (rIdx < minInkRow) minInkRow = rIdx
+              if (rIdx > maxInkRow) maxInkRow = rIdx
+            }
+          }
+        }
+        // Check if text has uppercase/digits without descenders to calibrate cap-height vs em-size
+        const hasAscenderOrDigit = /[A-Z0-9bdfhklt]/.test(combinedStr)
+        const hasDescender = /[gjpqy]/.test(combinedStr)
+        if (hasAscenderOrDigit && !hasDescender && maxInkRow > minInkRow) {
+          const measuredCapHeightPx = maxInkRow - minInkRow + 1
+          // Standard Sans-Serif cap-height is ~0.718 of em-size
+          const calibratedEmPx = measuredCapHeightPx / 0.718
+          const calibratedRatio = (calibratedEmPx / ch) * 100
+          // Blend/clamp within reasonable bounds of nominal fontSizeRatio
+          if (calibratedRatio >= fontSizeRatio * 0.82 && calibratedRatio <= fontSizeRatio * 1.22) {
+            effectiveFontSizeRatio = calibratedRatio
+            effectivePdfFontSize = (calibratedRatio / 100) * viewport.height
+          }
         }
       } catch {
         // Fallback
@@ -365,8 +402,8 @@ export async function extractPageTextBlocks(
       width: Math.max(wPct, 1.0),
       height: Math.max(hPct, 1.0),
       baselineYRatio,
-      fontSizeRatio,
-      pdfFontSize: maxH,
+      fontSizeRatio: effectiveFontSizeRatio,
+      pdfFontSize: effectivePdfFontSize,
       pdfX: minTx,
       pdfBaselineY: avgBaselineTy,
       pdfWidth: boxW,
