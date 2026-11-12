@@ -7,7 +7,6 @@ import {
   Split, 
   PenTool, 
   Minimize2, 
-  RefreshCw,
   ShieldCheck, 
   ChevronLeft, 
   ChevronRight,
@@ -15,7 +14,7 @@ import {
   Moon
 } from 'lucide-react'
 
-export type TabType = 'dashboard' | 'editor' | 'pages' | 'merge' | 'split' | 'sign' | 'compress' | 'convert' | 'protect'
+export type TabType = 'dashboard' | 'editor' | 'pages' | 'merge' | 'split' | 'sign' | 'compress' | 'protect'
 
 interface SidebarProps {
   activeTab: TabType
@@ -76,14 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'compress' as TabType, 
       label: 'Kecilkan Ukuran', 
       icon: Minimize2, 
-      desc: 'Kompres PDF, gambar & video' 
-    },
-    { 
-      id: 'convert' as TabType, 
-      label: 'Konversi Format', 
-      icon: RefreshCw, 
-      desc: 'Ubah ekstensi file, gambar & video',
-      badge: 'Baru'
+      desc: 'Kompres agar lolos syarat upload' 
     },
     { 
       id: 'protect' as TabType, 

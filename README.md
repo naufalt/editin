@@ -56,23 +56,16 @@ Banyak web tool online (seperti iLovePDF atau SmallPDF) mewajibkan Anda mengungg
 * **Upload Foto TTD**: Punya foto tanda tangan berlatar transparan? Langsung unggah dan tempelkan.
 * **Preset Cap/Stempel Instan**: Tempel cap resmi siap pakai (*APPROVED, LUNAS, CONFIDENTIAL, DRAFT, SALINAN SAH, REJECTED*).
 
-### 6. 🗜️ Kecilkan Ukuran File (Kompres PDF, Gambar & Video)
-* Mendukung kompresi dokumen **PDF**, gambar (**JPG, PNG, WEBP, BMP**), serta video (**MP4, MKV, MOV, AVI, WEBM**) secara 100% offline.
+### 6. 🗜️ Kecilkan Ukuran PDF (Kompresi Lokal)
 * **3 Opsi Kompresi Praktis**:
-  1. **Maksimal Kompres (Ukuran Terkecil)**: Kompresi agresif agar lolos batas upload ketat.
-  2. **Seimbang (Rekomendasi)**: Perpaduan ideal antara ukuran file ringan dan ketajaman visual.
-  3. **Maksimal Kualitas**: Mempertahankan ketajaman visual tertinggi sembari memangkas beban data berlebih.
-* Penamaan file otomatis menambahkan akhiran `_compressed`.
+  1. **Maksimal Kompres (Ukuran Terkecil)**: Kompresi agresif agar dokumen PDF lolos batas upload ketat (< 1–2 MB).
+  2. **Seimbang (Rekomendasi)**: Perpaduan ideal antara ukuran file PDF yang jauh lebih ringan dan ketajaman teks untuk portal/email.
+  3. **Maksimal Kualitas**: Mempertahankan ketajaman visual tertinggi sembari membersihkan struktur dan beban gambar berlebih.
+* Penamaan file otomatis menambahkan akhiran `_compressed.pdf`.
 
-### 7. 🔄 Konversi Format Universal (Dokumen, Gambar, Video & Audio)
-* **Dokumen & File**: Konversi `PDF` ⇄ `JPG`, `PNG`, `WEBP`, `TXT`, `HTML`, `DOCX`, serta dokumen `Word / Excel / PowerPoint` → `PDF`.
-* **Gambar & Foto**: Konversi `PNG`, `JPG`, `WEBP`, `SVG`, `BMP`, `GIF` ⇄ `JPG`, `PNG`, `WEBP`, `PDF`, `ICO`.
-* **Video & Audio**: Konversi `MP4`, `MKV`, `MOV`, `AVI`, `WEBM` ⇄ `MP4`, `MKV`, `MOV`, `WEBM`, `AVI`, `GIF`, `MP3`, `WAV`, `AAC`, `FLAC`.
-* Penamaan file hasil konversi otomatis menambahkan akhiran `_converted`.
-
-### 8. 🔒 Kunci Kata Sandi (Keamanan Dokumen 128-bit)
+### 7. 🔒 Kunci Kata Sandi (Keamanan Dokumen 128-bit)
 * Pasang kata sandi pembuka dengan enkripsi standar **128-bit RC4 PDF Security Handler**.
-* Dokumen yang dikunci memerlukan kata sandi saat dibuka di aplikasi mana pun (Adobe Acrobat, Edge, Chrome) dan otomatis dinamai dengan akhiran `_locked`.
+* Dokumen yang dikunci memerlukan kata sandi saat dibuka di aplikasi mana pun (Adobe Acrobat, Edge, Chrome) dan otomatis dinamai dengan akhiran `_locked.pdf`.
 
 ---
 
