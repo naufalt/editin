@@ -2,10 +2,16 @@ import * as pdfjsLib from 'pdfjs-dist'
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib'
 import { PageInfo } from '../store/documentStore'
 import { CanvasAnnotation } from '../types/annotations'
-import { EditableTextBlock } from './textExtractEngine'
+import { EditableTextBlock, sanitizePdfText } from './textExtractEngine'
 
 // Setup pdfjs worker using local bundled worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.min.js'
+
+const PDFJS_FONT_OPTIONS = {
+  standardFontDataUrl: './standard_fonts/',
+  cMapUrl: './cmaps/',
+  cMapPacked: true,
+}
 
 function hexToRgbNormalized(hex: string): { r: number; g: number; b: number } {
   const clean = hex.replace('#', '')
@@ -22,7 +28,7 @@ function hexToRgbNormalized(hex: string): { r: number; g: number; b: number } {
 
 export async function loadPdfPages(buffer: ArrayBuffer): Promise<PageInfo[]> {
   const data = new Uint8Array(buffer.slice(0))
-  const loadingTask = pdfjsLib.getDocument({ data })
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_FONT_OPTIONS })
   const pdfDoc = await loadingTask.promise
   const numPages = pdfDoc.numPages
   const pages: PageInfo[] = []
@@ -48,7 +54,7 @@ export async function renderPageToCanvas(
   scale = 2.0
 ): Promise<HTMLCanvasElement> {
   const data = new Uint8Array(buffer.slice(0))
-  const loadingTask = pdfjsLib.getDocument({ data })
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_FONT_OPTIONS })
   const pdfDoc = await loadingTask.promise
   const page = await pdfDoc.getPage(pageNumber)
   const viewport = page.getViewport({ scale })
@@ -99,6 +105,8 @@ export async function exportModifiedPdf(
 
   const courier = await outDoc.embedFont(StandardFonts.Courier)
   const courierBold = await outDoc.embedFont(StandardFonts.CourierBold)
+  const courierOblique = await outDoc.embedFont(StandardFonts.CourierOblique)
+  const courierBoldOblique = await outDoc.embedFont(StandardFonts.CourierBoldOblique)
 
   for (let i = 0; i < pages.length; i++) {
     const pageInfo = pages[i]
@@ -110,7 +118,7 @@ export async function exportModifiedPdf(
 
     const { width, height } = copiedPage.getSize()
 
-    // 1. Burn ONLY edited text blocks with 1:1 sampled background color, text color & font family
+    // 1. Burn ONLY edited text blocks with 1:1 sampled background color, text color & exact font category
     const pageEditedBlocks = editedBlocks.filter(
       (b) => b.isEdited && b.pageNumber === pageInfo.pageIndex + 1
     )
@@ -133,15 +141,17 @@ export async function exportModifiedPdf(
         color: rgb(bgRgb.r, bgRgb.g, bgRgb.b),
       })
 
-      if (b.str.trim().length > 0) {
-        const famLower = (b.fontFamily || '').toLowerCase()
-        const isSerif = famLower.includes('serif') || famLower.includes('times') || famLower.includes('georgia')
-        const isMono = famLower.includes('mono') || famLower.includes('courier') || famLower.includes('consolas')
+      const cleanText = sanitizePdfText(b.str)
+      if (cleanText.trim().length > 0) {
+        const category = b.fontCategory || 'sans'
 
         let fontToUse = helvetica
-        if (isMono) {
-          fontToUse = b.isBold ? courierBold : courier
-        } else if (isSerif) {
+        if (category === 'mono') {
+          if (b.isBold && b.isItalic) fontToUse = courierBoldOblique
+          else if (b.isBold) fontToUse = courierBold
+          else if (b.isItalic) fontToUse = courierOblique
+          else fontToUse = courier
+        } else if (category === 'serif') {
           if (b.isBold && b.isItalic) fontToUse = timesBoldItalic
           else if (b.isBold) fontToUse = timesBold
           else if (b.isItalic) fontToUse = timesItalic
@@ -153,7 +163,7 @@ export async function exportModifiedPdf(
           else fontToUse = helvetica
         }
 
-        copiedPage.drawText(b.str, {
+        copiedPage.drawText(cleanText, {
           x: b.pdfX,
           y: b.pdfBaselineY,
           size: b.pdfFontSize || 11,
@@ -171,13 +181,16 @@ export async function exportModifiedPdf(
 
       if (ann.type === 'text' && ann.text) {
         const fg = hexToRgbNormalized(ann.color || '#000000')
-        copiedPage.drawText(ann.text, {
-          x: pdfX,
-          y: pdfY - 14,
-          size: ann.fontSize || 15,
-          font: helvetica,
-          color: rgb(fg.r, fg.g, fg.b),
-        })
+        const cleanAnnText = sanitizePdfText(ann.text)
+        if (cleanAnnText.trim()) {
+          copiedPage.drawText(cleanAnnText, {
+            x: pdfX,
+            y: pdfY - 14,
+            size: ann.fontSize || 15,
+            font: helvetica,
+            color: rgb(fg.r, fg.g, fg.b),
+          })
+        }
       } else if (ann.type === 'whiteout') {
         const boxWidth = ((ann.width || 20) / 100) * width
         const boxHeight = ((ann.height || 4) / 100) * height

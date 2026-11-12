@@ -16,7 +16,7 @@ import {
 import { useDocumentStore } from '../../store/documentStore'
 import { CanvasAnnotation } from '../../types/annotations'
 import { renderPageToCanvas } from '../../utils/pdfEngine'
-import { extractPageTextBlocks, EditableTextBlock } from '../../utils/textExtractEngine'
+import { extractPageTextBlocks, EditableTextBlock, DetectedFontCategory, sanitizePdfText } from '../../utils/textExtractEngine'
 
 interface PageEditorCanvasProps {
   editedBlocks: EditableTextBlock[]
@@ -171,14 +171,16 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
   const handleUpdateBlock = (id: string, updates: Partial<EditableTextBlock>) => {
     const updated = editedBlocks.map((b) => {
       if (b.id === id) {
-        const nextStr = updates.str !== undefined ? updates.str : b.str
+        const nextStr = updates.str !== undefined ? sanitizePdfText(updates.str) : b.str
         return {
           ...b,
           ...updates,
+          str: nextStr,
           isEdited:
             nextStr !== b.originalStr ||
             updates.textColor !== undefined ||
             updates.isBold !== undefined ||
+            updates.fontCategory !== undefined ||
             updates.pdfFontSize !== undefined,
         }
       }
@@ -352,9 +354,39 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
           </button>
         </div>
 
-        {/* Center: Active Block 1:1 Inspector (Font Weight, Size, Color, Revert) */}
+        {/* Center: Active Block 1:1 Inspector (Detected Font, Category, Weight, Size, Color, Revert) */}
         {activeBlock && (
           <div className="flex items-center space-x-2 px-3 py-1 rounded-xl bg-[#1A1D28] border border-indigo-500/30 shadow-lg">
+            {/* Detected PDF Font Badge & Style Selector */}
+            <div className="flex items-center space-x-1.5 pr-1 border-r border-white/10">
+              <span
+                className="text-[10px] font-medium text-indigo-300 max-w-[90px] truncate"
+                title={`Font Asli PDF: ${activeBlock.realFontName || 'Inter'}`}
+              >
+                {activeBlock.realFontName || 'Inter'}
+              </span>
+              <select
+                value={activeBlock.fontCategory || 'sans'}
+                onChange={(e) =>
+                  handleUpdateBlock(activeBlock.id, {
+                    fontCategory: e.target.value as DetectedFontCategory,
+                  })
+                }
+                className="bg-white/5 text-slate-200 text-[10px] rounded px-1.5 py-0.5 border border-white/10 outline-none cursor-pointer"
+                title="Gaya Huruf (Sans-Serif / Serif / Monospace)"
+              >
+                <option value="sans" className="bg-[#1A1D28] text-slate-200">
+                  Sans-Serif
+                </option>
+                <option value="serif" className="bg-[#1A1D28] text-slate-200">
+                  Serif
+                </option>
+                <option value="mono" className="bg-[#1A1D28] text-slate-200">
+                  Monospace
+                </option>
+              </select>
+            </div>
+
             {/* Bold toggle */}
             <button
               onClick={() => handleUpdateBlock(activeBlock.id, { isBold: !activeBlock.isBold })}
@@ -538,11 +570,11 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
 
             // Exact 1:1 pixel font size matching the PDF font metric
             const exactFontSizePx = (block.fontSizeRatio / 100) * renderedPageHeightPx
-            const famLower = (block.fontFamily || '').toLowerCase()
+            const category = block.fontCategory || 'sans'
             const cssFontFamily =
-              famLower.includes('serif') || famLower.includes('times') || famLower.includes('georgia')
-                ? 'Georgia, "Times New Roman", serif'
-                : famLower.includes('mono') || famLower.includes('courier')
+              category === 'serif'
+                ? 'Georgia, "Times New Roman", Times, serif'
+                : category === 'mono'
                 ? '"Consolas", "Courier New", monospace'
                 : '"Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif'
 

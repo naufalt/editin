@@ -1,4 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist'
+import { PDFDocument, PDFName, PDFDict } from 'pdf-lib'
+
+export type DetectedFontCategory = 'sans' | 'serif' | 'mono'
 
 export interface EditableTextBlock {
   id: string
@@ -17,6 +20,8 @@ export interface EditableTextBlock {
   pdfWidth: number      // Original PDF width
   pdfHeight: number     // Original PDF height
   fontFamily: string
+  realFontName: string  // Actual PDF BaseFont e.g. 'Inter-Regular', 'Helvetica'
+  fontCategory: DetectedFontCategory
   textColor: string     // Extracted hex color e.g. '#111827'
   bgColor: string       // Sampled exact background color under text e.g. '#ffffff'
   isBold: boolean
@@ -24,25 +29,176 @@ export interface EditableTextBlock {
   isEdited: boolean
 }
 
+// Sanitize invisible/unsupported Unicode dashes, quotes, and spaces so WinAnsi/PDF fonts never render '□'
+export function sanitizePdfText(input: string): string {
+  return input
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-') // All Unicode hyphens/dashes -> ASCII '-'
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")                   // Smart single quotes -> ASCII "'"
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')                   // Smart double quotes -> ASCII '"'
+    .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, ' ')      // Non-breaking & zero-width spaces -> ' '
+    .replace(/\u2026/g, '...')                                     // Ellipsis -> '...'
+}
+
 function rgbToHex(r: number, g: number, b: number): string {
   const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
-// Extract and group glyph fragments into natural, cohesive line/column blocks
-// and sample exact text color & background color from the rendered canvas
+// Classify font based on actual PDF BaseFont name (NOT pdfjs fallback 'serif')
+export function classifyFontName(rawName: string): {
+  cleanName: string
+  category: DetectedFontCategory
+  isBold: boolean
+  isItalic: boolean
+} {
+  // Strip 6-letter subset prefix e.g. "BCDEFG+Inter-Medium" -> "Inter-Medium"
+  const cleanName = rawName.replace(/^\//, '').replace(/^[A-Z]{6}\+/, '')
+  const lower = cleanName.toLowerCase()
+
+  const isBold =
+    lower.includes('bold') ||
+    lower.includes('black') ||
+    lower.includes('heavy') ||
+    lower.includes('semibold') ||
+    lower.includes('demi') ||
+    lower.includes('medium') ||
+    lower.endsWith('-bd') ||
+    lower.endsWith(',bold')
+
+  const isItalic =
+    lower.includes('italic') ||
+    lower.includes('oblique') ||
+    lower.endsWith('-it')
+
+  // Check monospace first
+  const isMono =
+    lower.includes('mono') ||
+    lower.includes('courier') ||
+    lower.includes('consolas') ||
+    lower.includes('menlo') ||
+    lower.includes('fira') ||
+    lower.includes('code')
+
+  if (isMono) {
+    return { cleanName: cleanName || 'Inter', category: 'mono', isBold, isItalic }
+  }
+
+  // Check explicit true serif fonts (ignore generic 'serif' fallback unless it's truly Times/Georgia/Garamond/Cambria)
+  const isTrueSerif =
+    lower.includes('times') ||
+    lower.includes('georgia') ||
+    lower.includes('garamond') ||
+    lower.includes('cambria') ||
+    lower.includes('palatino') ||
+    lower.includes('baskerville') ||
+    lower.includes('minion') ||
+    lower.includes('caslon') ||
+    lower.includes('bodoni') ||
+    lower.includes('century') ||
+    lower.includes('Merriweather'.toLowerCase()) ||
+    lower.includes('playfair') ||
+    lower.includes('lora') ||
+    lower.includes('cmr') // Computer Modern Roman
+
+  if (isTrueSerif) {
+    return { cleanName: cleanName || 'Times New Roman', category: 'serif', isBold, isItalic }
+  }
+
+  // Default to clean modern Sans-Serif (Inter / Helvetica / Arial / Segoe UI / Roboto / Plus Jakarta / etc.)
+  return { cleanName: cleanName || 'Inter', category: 'sans', isBold, isItalic }
+}
+
+// Inspect PDF page Resources/Font dictionary to get true BaseFont names
+async function getPageBaseFontList(buffer: ArrayBuffer, pageNumber: number): Promise<string[]> {
+  try {
+    const doc = await PDFDocument.load(buffer.slice(0))
+    const page = doc.getPages()[pageNumber - 1]
+    if (!page) return []
+    const resources = page.node.Resources()
+    if (!resources) return []
+    const fontDict = resources.lookup(PDFName.of('Font'))
+    const names: string[] = []
+    if (fontDict instanceof PDFDict) {
+      for (const [, ref] of fontDict.entries()) {
+        const fd = doc.context.lookup(ref)
+        if (fd instanceof PDFDict) {
+          const bf = fd.lookup(PDFName.of('BaseFont'))
+          if (bf) {
+            names.push(bf.toString())
+          }
+        }
+      }
+    }
+    return names
+  } catch {
+    return []
+  }
+}
+
 export async function extractPageTextBlocks(
   buffer: ArrayBuffer,
   pageNumber: number,
   renderedCanvas?: HTMLCanvasElement
 ): Promise<EditableTextBlock[]> {
   const data = new Uint8Array(buffer.slice(0))
-  const loadingTask = pdfjsLib.getDocument({ data })
+  const loadingTask = pdfjsLib.getDocument({
+    data,
+    standardFontDataUrl: './standard_fonts/',
+    cMapUrl: './cmaps/',
+    cMapPacked: true,
+  })
   const pdfDoc = await loadingTask.promise
   const page = await pdfDoc.getPage(pageNumber)
   const viewport = page.getViewport({ scale: 1.0 })
   const textContent = await page.getTextContent()
   const styles = (textContent as any).styles || {}
+
+  // Trigger operatorList so page.commonObjs is populated with true FontFaceObject metadata
+  try {
+    await page.getOperatorList()
+  } catch {
+    // ignore
+  }
+
+  // Also inspect page font resources via pdf-lib as fallback
+  const pageBaseFonts = await getPageBaseFontList(buffer, pageNumber)
+
+  // Map each pdfjs internal font key (e.g. 'g_d0_f1') to its real PDF font name
+  const resolvedFontMap: Record<string, {
+    realName: string
+    category: DetectedFontCategory
+    isBold: boolean
+    isItalic: boolean
+  }> = {}
+
+  for (const fontKey of Object.keys(styles)) {
+    let rawFontName = ''
+    let commonBold = false
+    let commonItalic = false
+
+    try {
+      const commonFont = (page as any).commonObjs?.get(fontKey)
+      if (commonFont) {
+        rawFontName = commonFont.name || commonFont.loadedName || ''
+        commonBold = Boolean(commonFont.bold)
+        commonItalic = Boolean(commonFont.italic)
+      }
+    } catch {
+      // Not in commonObjs
+    }
+
+    if (!rawFontName && pageBaseFonts.length > 0) {
+      rawFontName = pageBaseFonts[0]
+    }
+
+    const info = classifyFontName(rawFontName)
+    resolvedFontMap[fontKey] = {
+      realName: info.cleanName,
+      category: info.category,
+      isBold: info.isBold || commonBold,
+      isItalic: info.isItalic || commonItalic,
+    }
+  }
 
   interface RawGlyph {
     str: string
@@ -51,28 +207,28 @@ export async function extractPageTextBlocks(
     w: number
     h: number
     fontName: string
-    fontFamily: string
   }
 
   const rawItems: RawGlyph[] = []
 
   for (const item of textContent.items as any[]) {
     if (!item.str || item.str.trim() === '') continue
+    const cleanStr = sanitizePdfText(item.str)
+    if (!cleanStr.trim()) continue
+
     const tx = item.transform[4]
     const ty = item.transform[5]
     const fontScaleY = Math.hypot(item.transform[2], item.transform[3])
     const h = fontScaleY || item.height || 10
-    const w = item.width || (item.str.length * h * 0.5)
-    const styleInfo = styles[item.fontName] || {}
+    const w = item.width || (cleanStr.length * h * 0.5)
 
     rawItems.push({
-      str: item.str,
+      str: cleanStr,
       tx,
       ty,
       w,
       h,
       fontName: item.fontName || '',
-      fontFamily: styleInfo.fontFamily || 'sans-serif',
     })
   }
 
@@ -126,7 +282,7 @@ export async function extractPageTextBlocks(
       }
       combinedStr += curr.str
     }
-    combinedStr = combinedStr.trim()
+    combinedStr = sanitizePdfText(combinedStr.trim())
     if (!combinedStr) return
 
     const minTx = Math.min(...group.map((it) => it.tx))
@@ -134,9 +290,9 @@ export async function extractPageTextBlocks(
     const avgBaselineTy = group.reduce((acc, it) => acc + it.ty, 0) / group.length
     const maxH = Math.max(...group.map((it) => it.h))
 
-    // Tighter ascent/descent bounding box so table borders are never touched
-    const pdfBottom = avgBaselineTy - maxH * 0.20
-    const pdfTop = avgBaselineTy + maxH * 0.84
+    // Tight ascent/descent bounding box
+    const pdfBottom = avgBaselineTy - maxH * 0.21
+    const pdfTop = avgBaselineTy + maxH * 0.85
     const boxW = Math.max(maxTx - minTx, maxH * 0.5)
     const boxH = pdfTop - pdfBottom
 
@@ -147,19 +303,16 @@ export async function extractPageTextBlocks(
     const baselineYRatio = ((viewport.height - avgBaselineTy) / viewport.height) * 100
     const fontSizeRatio = (maxH / viewport.height) * 100
 
-    const fontLower = (group[0].fontName + ' ' + group[0].fontFamily).toLowerCase()
-    const isBold =
-      fontLower.includes('bold') ||
-      fontLower.includes('black') ||
-      fontLower.includes('heavy') ||
-      fontLower.includes('semibold') ||
-      fontLower.includes('medium') ||
-      fontLower.includes('demi')
-    const isItalic = fontLower.includes('italic') || fontLower.includes('oblique')
+    const resolvedFont = resolvedFontMap[group[0].fontName] || {
+      realName: 'Inter',
+      category: 'sans' as DetectedFontCategory,
+      isBold: false,
+      isItalic: false,
+    }
 
-    // Sample background color and foreground ink color from rendered canvas if available
+    // Sample background color and foreground ink color from rendered canvas
     let bgColor = '#ffffff'
-    let textColor = '#000000'
+    let textColor = '#111827'
 
     if (ctx && renderedCanvas) {
       try {
@@ -170,7 +323,6 @@ export async function extractPageTextBlocks(
         const pxW = Math.max(2, Math.min(cw - pxX, Math.ceil((wPct / 100) * cw)))
         const pxH = Math.max(2, Math.min(ch - pxY, Math.ceil((hPct / 100) * ch)))
 
-        // Sample corner pixel just outside/top-left of glyph box for accurate background color
         const bgSampleX = Math.max(0, pxX - 2)
         const bgSampleY = Math.max(0, pxY + 1)
         const bgPixel = ctx.getImageData(bgSampleX, bgSampleY, 1, 1).data
@@ -178,12 +330,11 @@ export async function extractPageTextBlocks(
           bgColor = rgbToHex(bgPixel[0], bgPixel[1], bgPixel[2])
         }
 
-        // Sample darkest/most-contrasting pixel inside the glyph box for accurate ink color
         const imgData = ctx.getImageData(pxX, pxY, Math.min(pxW, 40), pxH).data
         let minLum = 9999
-        let bestR = 0
-        let bestG = 0
-        let bestB = 0
+        let bestR = 17
+        let bestG = 24
+        let bestB = 39
         for (let p = 0; p < imgData.length; p += 4) {
           const r = imgData[p]
           const g = imgData[p + 1]
@@ -196,11 +347,11 @@ export async function extractPageTextBlocks(
             bestB = b
           }
         }
-        if (minLum < 220) {
+        if (minLum < 225) {
           textColor = rgbToHex(bestR, bestG, bestB)
         }
       } catch {
-        // Fallback to black on white
+        // Fallback
       }
     }
 
@@ -220,11 +371,13 @@ export async function extractPageTextBlocks(
       pdfBaselineY: avgBaselineTy,
       pdfWidth: boxW,
       pdfHeight: boxH,
-      fontFamily: group[0].fontFamily,
+      fontFamily: resolvedFont.category,
+      realFontName: resolvedFont.realName,
+      fontCategory: resolvedFont.category,
       textColor,
       bgColor,
-      isBold,
-      isItalic,
+      isBold: resolvedFont.isBold,
+      isItalic: resolvedFont.isItalic,
       isEdited: false,
     })
   })
