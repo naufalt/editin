@@ -6,7 +6,7 @@ import {
   PDFRawStream,
   PDFArray,
 } from 'pdf-lib'
-import { renderPageToCanvas } from './pdfEngine'
+import * as pdfjsLib from 'pdfjs-dist'
 
 export type CompressQuality = 'extreme' | 'balanced' | 'high'
 
@@ -27,22 +27,34 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   return bytes
 }
 
+export type ProgressCallback = (data: {
+  percent: number
+  currentPage: number
+  totalPages: number
+  statusText: string
+}) => void
+
 /**
- * True Offline PDF Compression Engine:
- * - 'extreme' (Maksimal Kompres - Ukuran Terkecil): Rebuilds pages at 1.1x scale & 0.45 JPEG quality.
- * - 'balanced' (Seimbang - Standar Web/Portal): Rebuilds pages at 1.5x scale & 0.68 JPEG quality.
- * - 'high' (Maksimal Kualitas): Strips metadata & object streams first; if original has heavy uncompressed streams,
- *   optimizes at 2.0x scale & 0.85 JPEG quality, always returning whichever is smaller!
+ * True Offline PDF Compression Engine with fine-grained real-time page-by-page progress callback
  */
 export async function compressPdfDocument(
   buffer: ArrayBuffer,
-  quality: CompressQuality
+  quality: CompressQuality,
+  onProgress?: ProgressCallback
 ): Promise<CompressResult> {
   const originalSize = buffer.byteLength
+
+  onProgress?.({
+    percent: 5,
+    currentPage: 0,
+    totalPages: 0,
+    statusText: 'Membaca dan membersihkan metadata PDF...',
+  })
+
+  // 1. Lossless structural & metadata cleanup pass
   const srcDoc = await PDFDocument.load(buffer.slice(0))
   const pageCount = srcDoc.getPageCount()
 
-  // 1. Lossless structural & metadata cleanup pass
   srcDoc.setTitle('')
   srcDoc.setAuthor('')
   srcDoc.setSubject('')
@@ -55,22 +67,61 @@ export async function compressPdfDocument(
     addDefaultPage: false,
   })
 
+  onProgress?.({
+    percent: 12,
+    currentPage: 0,
+    totalPages: pageCount,
+    statusText: `Menyiapkan ${pageCount} halaman untuk optimasi...`,
+  })
+
   // Configure rasterization parameters per profile
   const profileConfig: Record<CompressQuality, { scale: number; jpegQuality: number }> = {
     extreme: { scale: 1.1, jpegQuality: 0.45 },
-    balanced: { scale: 1.5, jpegQuality: 0.68 },
-    high: { scale: 2.0, jpegQuality: 0.84 },
+    balanced: { scale: 1.4, jpegQuality: 0.65 },
+    high: { scale: 1.8, jpegQuality: 0.82 },
   }
 
   const { scale, jpegQuality } = profileConfig[quality]
   const outDoc = await PDFDocument.create()
   outDoc.setProducer('EditIn // Ngoods Studio')
 
+  // Load PDF with pdfjs once for fast page extraction
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(buffer.slice(0)),
+    standardFontDataUrl: './standard_fonts/',
+    cMapUrl: './cmaps/',
+    cMapPacked: true,
+  })
+  const pdfJsDoc = await loadingTask.promise
+
+  // Allocate 15% -> 85% for page-by-page re-encoding
   for (let i = 0; i < pageCount; i++) {
+    const pageNum = i + 1
+    const percent = Math.round(15 + ((i + 0.5) / pageCount) * 70)
+    
+    onProgress?.({
+      percent,
+      currentPage: pageNum,
+      totalPages: pageCount,
+      statusText: `Mengompresi halaman ${pageNum} dari ${pageCount}...`,
+    })
+
     const srcPage = srcDoc.getPage(i)
     const { width, height } = srcPage.getSize()
 
-    const canvas = await renderPageToCanvas(buffer, i + 1, scale)
+    const pdfPage = await pdfJsDoc.getPage(pageNum)
+    const viewport = pdfPage.getViewport({ scale })
+
+    const canvas = document.createElement('canvas')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    const ctx = canvas.getContext('2d')!
+
+    await pdfPage.render({
+      canvasContext: ctx,
+      viewport,
+    }).promise
+
     const jpegDataUrl = canvas.toDataURL('image/jpeg', jpegQuality)
     const jpegBytes = dataUrlToUint8Array(jpegDataUrl)
     const embeddedJpg = await outDoc.embedJpg(jpegBytes)
@@ -84,9 +135,23 @@ export async function compressPdfDocument(
     })
   }
 
+  onProgress?.({
+    percent: 88,
+    currentPage: pageCount,
+    totalPages: pageCount,
+    statusText: 'Menyusun kembali struktur dokumen PDF baru...',
+  })
+
   const recompressedBytes = await outDoc.save({
     useObjectStreams: true,
     addDefaultPage: false,
+  })
+
+  onProgress?.({
+    percent: 96,
+    currentPage: pageCount,
+    totalPages: pageCount,
+    statusText: 'Menghitung penghematan ukuran file...',
   })
 
   // Always pick the smallest valid output so file size never accidentally grows
@@ -103,6 +168,13 @@ export async function compressPdfDocument(
     0,
     Math.round(((originalSize - newSize) / Math.max(1, originalSize)) * 100)
   )
+
+  onProgress?.({
+    percent: 100,
+    currentPage: pageCount,
+    totalPages: pageCount,
+    statusText: 'Kompresi selesai!',
+  })
 
   return {
     bytes: finalBytes,
