@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { useDocumentStore } from '../../store/documentStore'
 import { CanvasAnnotation } from '../../types/annotations'
-import { renderPageToThumbnail } from '../../utils/pdfEngine'
+import { renderPageToCanvas } from '../../utils/pdfEngine'
 import { extractPageTextBlocks, EditableTextBlock } from '../../utils/textExtractEngine'
 
 interface PageEditorCanvasProps {
@@ -56,18 +56,44 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const editedBlocksRef = useRef<EditableTextBlock[]>(editedBlocks)
+  editedBlocksRef.current = editedBlocks
 
   const currentPage = pages[activePageIndex]
   const currentAnnotations = annotations.filter((a) => a.pageIndex === activePageIndex)
   const currentPageNumber = currentPage ? currentPage.pageIndex + 1 : 1
   const currentPageBlocks = editedBlocks.filter((b) => b.pageNumber === currentPageNumber)
 
-  // 1. Render high-res crisp visual background of original PDF
+  // 1. Render high-res crisp visual background AND sample exact colors for 1:1 native text editing
   useEffect(() => {
     if (!currentPdfBuffer || !currentPage) return
-    renderPageToThumbnail(currentPdfBuffer, currentPageNumber, 2.0)
-      .then((url) => setPageImageUrl(url))
-      .catch((err) => console.error('Failed to render editor page preview:', err))
+    let isCancelled = false
+
+    const loadPageAndExtract = async () => {
+      try {
+        setIsScanning(true)
+        const canvas = await renderPageToCanvas(currentPdfBuffer, currentPageNumber, 2.0)
+        if (isCancelled) return
+        setPageImageUrl(canvas.toDataURL('image/jpeg', 0.94))
+
+        const alreadyExtracted = editedBlocksRef.current.some((b) => b.pageNumber === currentPageNumber)
+        if (!alreadyExtracted) {
+          const newBlocks = await extractPageTextBlocks(currentPdfBuffer, currentPageNumber, canvas)
+          if (!isCancelled) {
+            onBlocksChange([...editedBlocksRef.current, ...newBlocks])
+          }
+        }
+      } catch (err) {
+        console.error('Failed to render/extract editor page:', err)
+      } finally {
+        if (!isCancelled) setIsScanning(false)
+      }
+    }
+
+    loadPageAndExtract()
+    return () => {
+      isCancelled = true
+    }
   }, [currentPdfBuffer, currentPageNumber])
 
   // Track rendered image height so font sizes match exact 1:1 scale
@@ -82,32 +108,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
     return () => window.removeEventListener('resize', updateHeight)
   }, [pageImageUrl])
 
-  // 2. Automatic OCR / Text Layer Extraction for the active page (only if not yet extracted)
-  useEffect(() => {
-    if (!currentPdfBuffer || !currentPage) return
-    const alreadyExtracted = editedBlocks.some((b) => b.pageNumber === currentPageNumber)
-    if (alreadyExtracted) return
-
-    let isCancelled = false
-    setIsScanning(true)
-
-    extractPageTextBlocks(currentPdfBuffer, currentPageNumber)
-      .then((newBlocks) => {
-        if (!isCancelled) {
-          onBlocksChange([...editedBlocks, ...newBlocks])
-        }
-      })
-      .catch((err) => console.error('Text extraction error:', err))
-      .finally(() => {
-        if (!isCancelled) setIsScanning(false)
-      })
-
-    return () => {
-      isCancelled = true
-    }
-  }, [currentPdfBuffer, currentPageNumber])
-
-  // 3. NATIVE TOUCHPAD GESTURES: Pinch-to-zoom (Ctrl+Wheel) & 2-finger pan
+  // 2. NATIVE TOUCHPAD GESTURES: Pinch-to-zoom (Ctrl+Wheel) & 2-finger pan
   useEffect(() => {
     const viewport = viewportRef.current
     if (!viewport) return
@@ -116,11 +117,9 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
       e.preventDefault()
 
       if (e.ctrlKey) {
-        // Pinch-to-zoom gesture on Touchpad
         const zoomDelta = -e.deltaY * 0.005
         setZoomScale((prev) => Math.min(Math.max(0.5, prev + zoomDelta), 2.5))
       } else {
-        // Two-finger scroll / pan gesture on Touchpad
         setPanOffset((prev) => ({
           x: prev.x - e.deltaX * 0.8,
           y: prev.y - e.deltaY * 0.8,
@@ -168,14 +167,19 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
     setIsDraggingElement(false)
   }
 
-  // Update text block when user edits a scanned line
-  const handleBlockTextChange = (id: string, newText: string) => {
+  // Update text block properties
+  const handleUpdateBlock = (id: string, updates: Partial<EditableTextBlock>) => {
     const updated = editedBlocks.map((b) => {
       if (b.id === id) {
+        const nextStr = updates.str !== undefined ? updates.str : b.str
         return {
           ...b,
-          str: newText,
-          isEdited: newText !== b.originalStr,
+          ...updates,
+          isEdited:
+            nextStr !== b.originalStr ||
+            updates.textColor !== undefined ||
+            updates.isBold !== undefined ||
+            updates.pdfFontSize !== undefined,
         }
       }
       return b
@@ -290,7 +294,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
         <div className="flex items-center space-x-2">
           <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
             <Sparkles size={14} className={isScanning ? "animate-spin" : "text-indigo-400"} />
-            <span>{isScanning ? 'Memindai Teks...' : 'Klik Teks untuk Edit Langsung'}</span>
+            <span>{isScanning ? 'Memindai Teks...' : 'Klik Teks untuk Edit 1:1'}</span>
           </div>
 
           <div className="h-5 w-px bg-white/10 mx-1" />
@@ -304,7 +308,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
             }`}
           >
             <Type size={14} />
-            <span>+ Teks Baru</span>
+            <span>+ Teks</span>
           </button>
 
           <button
@@ -324,7 +328,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
             className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold flex items-center space-x-1.5 transition-all"
           >
             <ImageIcon size={14} />
-            <span>+ Foto/Logo</span>
+            <span>+ Gambar</span>
           </button>
           <input
             type="file"
@@ -348,18 +352,74 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
           </button>
         </div>
 
-        {/* Center: Selected Element or Block Controls */}
-        {activeBlock && activeBlock.isEdited && (
-          <div className="flex items-center space-x-2 px-3 py-1 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-            <span className="text-[11px] text-indigo-300">Teks Diubah:</span>
+        {/* Center: Active Block 1:1 Inspector (Font Weight, Size, Color, Revert) */}
+        {activeBlock && (
+          <div className="flex items-center space-x-2 px-3 py-1 rounded-xl bg-[#1A1D28] border border-indigo-500/30 shadow-lg">
+            {/* Bold toggle */}
             <button
-              onClick={() => handleRevertBlock(activeBlock.id)}
-              className="px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] flex items-center space-x-1 transition-colors"
-              title="Kembalikan ke teks asli dokumen"
+              onClick={() => handleUpdateBlock(activeBlock.id, { isBold: !activeBlock.isBold })}
+              className={`w-6 h-6 rounded text-xs font-black transition-colors ${
+                activeBlock.isBold ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-300 hover:bg-white/10'
+              }`}
+              title="Tebal (Bold)"
             >
-              <Undo2 size={12} />
-              <span>Reset Asli</span>
+              B
             </button>
+
+            {/* Font size fine-tuning */}
+            <div className="flex items-center space-x-1 bg-white/5 rounded px-1.5 py-0.5">
+              <button
+                onClick={() => {
+                  const nextPt = Math.max(5, (activeBlock.pdfFontSize || 11) - 0.5)
+                  const ratioScale = nextPt / (activeBlock.pdfFontSize || 11)
+                  handleUpdateBlock(activeBlock.id, {
+                    pdfFontSize: nextPt,
+                    fontSizeRatio: activeBlock.fontSizeRatio * ratioScale,
+                  })
+                }}
+                className="text-slate-400 hover:text-white px-1 text-xs font-bold"
+                title="Perkecil huruf"
+              >
+                -
+              </button>
+              <span className="text-[10px] font-mono text-slate-200 w-7 text-center">
+                {Math.round((activeBlock.pdfFontSize || 11) * 10) / 10}
+              </span>
+              <button
+                onClick={() => {
+                  const nextPt = Math.min(72, (activeBlock.pdfFontSize || 11) + 0.5)
+                  const ratioScale = nextPt / (activeBlock.pdfFontSize || 11)
+                  handleUpdateBlock(activeBlock.id, {
+                    pdfFontSize: nextPt,
+                    fontSizeRatio: activeBlock.fontSizeRatio * ratioScale,
+                  })
+                }}
+                className="text-slate-400 hover:text-white px-1 text-xs font-bold"
+                title="Perbesar huruf"
+              >
+                +
+              </button>
+            </div>
+
+            {/* Text Color Picker */}
+            <input
+              type="color"
+              value={activeBlock.textColor || '#000000'}
+              onChange={(e) => handleUpdateBlock(activeBlock.id, { textColor: e.target.value })}
+              className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent p-0"
+              title="Warna Teks"
+            />
+
+            {activeBlock.isEdited && (
+              <button
+                onClick={() => handleRevertBlock(activeBlock.id)}
+                className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-slate-200 text-[10px] flex items-center space-x-1 transition-colors"
+                title="Kembalikan ke teks asli dokumen"
+              >
+                <Undo2 size={11} />
+                <span>Reset</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -390,7 +450,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
               <ChevronLeft size={16} />
             </button>
             <span className="font-semibold">
-              Hal {activePageIndex + 1} dari {pages.length}
+              Hal {activePageIndex + 1} / {pages.length}
             </span>
             <button
               onClick={() => setActivePageIndex(Math.min(pages.length - 1, activePageIndex + 1))}
@@ -470,13 +530,21 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
             </div>
           )}
 
-          {/* 2. Acrobat-Style Direct Text Editing Layer */}
+          {/* 2. True 1:1 Native Text Editing Layer */}
           {currentPageBlocks.map((block) => {
             const isSelected = block.id === selectedBlockId
             const isEdited = block.isEdited
-            const showInput = isSelected || isEdited
-            // Dynamic pixel font size proportional to the rendered page height
-            const computedFontSizePx = Math.max(9, (block.fontSizeRatio / 100) * renderedPageHeightPx * 0.92)
+            const showEditor = isSelected || isEdited
+
+            // Exact 1:1 pixel font size matching the PDF font metric
+            const exactFontSizePx = (block.fontSizeRatio / 100) * renderedPageHeightPx
+            const famLower = (block.fontFamily || '').toLowerCase()
+            const cssFontFamily =
+              famLower.includes('serif') || famLower.includes('times') || famLower.includes('georgia')
+                ? 'Georgia, "Times New Roman", serif'
+                : famLower.includes('mono') || famLower.includes('courier')
+                ? '"Consolas", "Courier New", monospace'
+                : '"Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif'
 
             return (
               <div
@@ -492,27 +560,33 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
                   top: `${block.y}%`,
                   minWidth: `${block.width}%`,
                   height: `${block.height}%`,
+                  backgroundColor: showEditor ? block.bgColor : 'transparent',
                 }}
-                className={`absolute z-10 flex items-center transition-all rounded-[2px] ${
-                  showInput
-                    ? 'bg-white'
-                    : 'bg-transparent hover:ring-1 hover:ring-indigo-500/60 hover:bg-indigo-500/5 cursor-text'
-                } ${isSelected ? 'ring-1.5 ring-indigo-600 shadow-xs z-30' : ''}`}
-                title={showInput ? undefined : `Klik untuk edit: "${block.str}"`}
+                className={`absolute z-10 flex items-baseline transition-shadow ${
+                  showEditor
+                    ? ''
+                    : 'hover:outline hover:outline-1 hover:outline-indigo-500/50 cursor-text'
+                } ${isSelected ? 'outline outline-1 outline-dashed outline-indigo-600 z-30' : ''}`}
+                title={showEditor ? undefined : `Klik untuk edit teks: "${block.str}"`}
               >
-                {showInput && (
+                {showEditor && (
                   <input
                     type="text"
                     autoFocus={isSelected}
                     value={block.str}
-                    onChange={(e) => handleBlockTextChange(block.id, e.target.value)}
+                    onChange={(e) => handleUpdateBlock(block.id, { str: e.target.value })}
                     style={{
-                      fontSize: `${computedFontSizePx}px`,
+                      fontSize: `${exactFontSizePx}px`,
+                      lineHeight: '1',
+                      fontFamily: cssFontFamily,
                       fontWeight: block.isBold ? 700 : 400,
                       fontStyle: block.isItalic ? 'italic' : 'normal',
-                      width: `${Math.max(block.str.length + 1, 4)}ch`,
+                      color: block.textColor || '#000000',
+                      backgroundColor: block.bgColor || '#ffffff',
+                      width: `${Math.max(block.str.length + 0.5, 2)}ch`,
+                      minWidth: '100%',
                     }}
-                    className="w-full h-full bg-white text-black border-none outline-none p-0 m-0 leading-none font-sans"
+                    className="h-full border-none outline-none p-0 m-0 tracking-normal"
                   />
                 )}
               </div>
