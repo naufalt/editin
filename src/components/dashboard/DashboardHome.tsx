@@ -6,6 +6,7 @@ import {
   Split, 
   PenTool, 
   Minimize2, 
+  RefreshCw,
   ShieldCheck, 
   UploadCloud,
   FileText,
@@ -66,10 +67,18 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
     },
     {
       tab: 'compress' as TabType,
-      title: 'Kecilkan Ukuran PDF',
-      desc: 'Kompres file agar lolos syarat upload CPNS, portal kampus, atau email (< 2MB).',
+      title: 'Kompres PDF, Gambar & Video',
+      desc: 'Kecilkan ukuran file PDF, foto (JPG/PNG/WEBP), hingga video (MP4/MKV/MOV) dengan 3 opsi praktis.',
       icon: Minimize2,
       color: 'from-rose-600 to-red-600',
+    },
+    {
+      tab: 'convert' as TabType,
+      title: 'Konversi Format Universal',
+      desc: 'Ubah berbagai ekstensi Dokumen/PDF, Gambar (PNG/JPG/WEBP/ICO), serta Video & Audio (MP4/GIF/MP3).',
+      icon: RefreshCw,
+      color: 'from-cyan-600 to-blue-600',
+      tag: 'Multi-Format',
     },
     {
       tab: 'protect' as TabType,
