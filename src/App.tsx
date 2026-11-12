@@ -50,10 +50,13 @@ export default function App() {
   const [splitNValue, setSplitNValue] = useState(1)
 
   // Compress state
-  const [compressQuality, setCompressQuality] = useState<CompressQuality>('cpns')
+  const [compressQuality, setCompressQuality] = useState<CompressQuality>('balanced')
 
   // Protect state
   const [protectPassword, setProtectPassword] = useState('')
+
+  // Track whether pages were reordered/deleted in Page Manager
+  const [hasPageStructureChanges, setHasPageStructureChanges] = useState(false)
 
   const handleProcessFileBuffer = async (name: string, buffer: ArrayBuffer, path?: string) => {
     try {
@@ -64,6 +67,7 @@ export default function App() {
       const parsedPages = await loadPdfPages(buffer)
       setPages(parsedPages)
       setEditedBlocks([])
+      setHasPageStructureChanges(false)
       setSplitRange(parsedPages.length > 1 ? `1-${Math.min(3, parsedPages.length)}` : '1')
       
       if (activeTab === 'dashboard') {
@@ -119,6 +123,49 @@ export default function App() {
     setMergeFiles(updated)
   }
 
+  // Build descriptive output filename reflecting all operations performed on the document
+  const buildSmartExportFileName = (currentAction: 'merge' | 'split' | 'compress' | 'protect' | 'editor' | 'sign' | 'pages', extraSuffix?: string): string => {
+    const rawBase = (fileName || 'dokumen').replace(/\.pdf$/i, '')
+
+    // Detect cumulative history of actions already performed on this document
+    const tags: string[] = []
+    const hasTextEdits = editedBlocks.some((b) => b.isEdited)
+    const hasEditorAnnotations = annotations.some((a) => !a.id.startsWith('sign_') && !a.id.startsWith('stamp_'))
+    const hasSignOrStamp = annotations.some((a) => a.id.startsWith('sign_') || a.id.startsWith('stamp_'))
+    const hasRotatedOrReordered =
+      hasPageStructureChanges ||
+      pages.some((p, idx) => p.rotation !== 0 || p.pageIndex !== idx)
+
+    if (hasTextEdits || hasEditorAnnotations || currentAction === 'editor') {
+      if (!rawBase.includes('_edited')) tags.push('edited')
+    }
+    if (hasSignOrStamp || currentAction === 'sign') {
+      if (!rawBase.includes('_signed')) tags.push('signed')
+    }
+    if (hasRotatedOrReordered || currentAction === 'pages') {
+      if (!rawBase.includes('_organized') && tags.length === 0) tags.push('organized')
+    }
+    if (currentAction === 'compress') {
+      if (!rawBase.includes('_compressed')) tags.push('compressed')
+    }
+    if (currentAction === 'protect') {
+      if (!rawBase.includes('_locked')) tags.push('locked')
+    }
+    if (currentAction === 'split') {
+      tags.push(extraSuffix || 'split')
+    }
+    if (currentAction === 'merge') {
+      const firstMergeBase = mergeFiles[0]?.name.replace(/\.pdf$/i, '') || 'dokumen'
+      return `${firstMergeBase}_merged.pdf`
+    }
+
+    if (tags.length === 0) {
+      tags.push('edited')
+    }
+
+    return `${rawBase}_${tags.join('_')}.pdf`
+  }
+
   // Primary Action Router
   const handleExport = async () => {
     try {
@@ -133,7 +180,7 @@ export default function App() {
         }
         setStatus('Menggabungkan dokumen...')
         const mergedBytes = await mergePdfDocuments(mergeFiles)
-        await saveOutput(mergedBytes, 'dokumen_gabung.pdf')
+        await saveOutput(mergedBytes, buildSmartExportFileName('merge'))
         return
       }
 
@@ -149,7 +196,7 @@ export default function App() {
           setStatus(`Memecah dokumen tiap ${splitNValue} halaman...`)
           const chunks = await splitPdfEveryNPages(currentPdfBuffer, splitNValue, pages.length)
           for (const chunk of chunks) {
-            const chunkName = `${(fileName || 'dokumen').replace(/\.pdf$/i, '')}_bagian_${chunk.chunkIndex}.pdf`
+            const chunkName = buildSmartExportFileName('split', `split_part_${chunk.chunkIndex}`)
             await saveOutput(chunk.bytes, chunkName)
           }
           setStatus(`Berhasil memecah menjadi ${chunks.length} berkas`)
@@ -157,7 +204,8 @@ export default function App() {
         } else {
           setStatus('Memisahkan rentang halaman...')
           const splitBytes = await splitPdfByRange(currentPdfBuffer, splitRange, pages.length)
-          const name = fileName ? `${fileName.replace(/\.pdf$/i, '')}_halaman_${splitRange.replace(/[^a-zA-Z0-9]/g, '_')}.pdf` : 'dokumen_pisah.pdf'
+          const cleanRange = splitRange.replace(/[^a-zA-Z0-9]/g, '_')
+          const name = buildSmartExportFileName('split', `split_${cleanRange}`)
           await saveOutput(splitBytes, name)
           return
         }
@@ -166,11 +214,26 @@ export default function App() {
       // 3. KOMPRES PDF
       if (activeTab === 'compress') {
         if (!currentPdfBuffer) return
-        setStatus('Mengompresi dokumen...')
-        const result = await compressPdfDocument(currentPdfBuffer, compressQuality)
-        const name = fileName ? `${fileName.replace(/\.pdf$/i, '')}_slim.pdf` : 'dokumen_slim.pdf'
-        await saveOutput(result.bytes, name)
-        setStatus(`Kompresi berhasil! Hemat ${result.savingsPercent}%`)
+        setStatus('Mengompresi ukuran dokumen...')
+        // First apply any pending edits/signatures if the user edited or signed before compressing!
+        const hasPendingChanges =
+          editedBlocks.some((b) => b.isEdited) ||
+          annotations.length > 0 ||
+          pages.some((p, idx) => p.rotation !== 0 || p.pageIndex !== idx)
+        let sourceBuffer = currentPdfBuffer
+        if (hasPendingChanges && pages.length > 0) {
+          const modBytes = await exportModifiedPdf(currentPdfBuffer, pages, annotations, editedBlocks)
+          sourceBuffer = modBytes.buffer.slice(modBytes.byteOffset, modBytes.byteOffset + modBytes.byteLength) as ArrayBuffer
+        }
+
+        const result = await compressPdfDocument(sourceBuffer, compressQuality)
+        const name = buildSmartExportFileName('compress')
+        const saved = await saveOutput(result.bytes, name)
+        if (saved) {
+          const origMb = (result.originalSize / (1024 * 1024)).toFixed(2)
+          const newMb = (result.newSize / (1024 * 1024)).toFixed(2)
+          setStatus(`Kompresi berhasil! ${origMb} MB → ${newMb} MB (Hemat ${result.savingsPercent}%)`)
+        }
         return
       }
 
@@ -182,20 +245,33 @@ export default function App() {
           setLoading(false)
           return
         }
-        setStatus('Mengenkripsi dokumen dengan kata sandi...')
-        const encryptedBytes = await encryptPdfDocument(currentPdfBuffer, protectPassword)
-        const name = fileName ? `${fileName.replace(/\.pdf$/i, '')}_locked.pdf` : 'dokumen_terkunci.pdf'
-        await saveOutput(encryptedBytes, name)
+        setStatus('Mengenkripsi & mengunci dokumen dengan kata sandi...')
+        // First apply any pending edits/signatures if the user edited or signed before locking!
+        const hasPendingChanges =
+          editedBlocks.some((b) => b.isEdited) ||
+          annotations.length > 0 ||
+          pages.some((p, idx) => p.rotation !== 0 || p.pageIndex !== idx)
+        let sourceBuffer = currentPdfBuffer
+        if (hasPendingChanges && pages.length > 0) {
+          const modBytes = await exportModifiedPdf(currentPdfBuffer, pages, annotations, editedBlocks)
+          sourceBuffer = modBytes.buffer.slice(modBytes.byteOffset, modBytes.byteOffset + modBytes.byteLength) as ArrayBuffer
+        }
+
+        const encryptedBytes = await encryptPdfDocument(sourceBuffer, protectPassword)
+        const name = buildSmartExportFileName('protect')
+        const saved = await saveOutput(encryptedBytes, name)
+        if (saved) {
+          setStatus('Dokumen berhasil dikunci dengan sandi!')
+        }
         return
       }
 
-      // 5. EDITOR / PAGES / SIGN (Simpan Hasil Editan Bersih)
+      // 5. EDITOR / PAGES / SIGN (Simpan Hasil Editan / Tanda Tangan / Susun Halaman)
       if (!currentPdfBuffer || pages.length === 0) return
       setStatus('Menyimpan perubahan ke PDF...')
       const outputBytes = await exportModifiedPdf(currentPdfBuffer, pages, annotations, editedBlocks)
-      const defaultExportName = fileName 
-        ? `${fileName.replace(/\.pdf$/i, '')}_edited.pdf` 
-        : 'dokumen_diedit.pdf'
+      const actionType = activeTab === 'sign' ? 'sign' : activeTab === 'pages' ? 'pages' : 'editor'
+      const defaultExportName = buildSmartExportFileName(actionType)
       await saveOutput(outputBytes, defaultExportName)
 
     } catch (err: any) {
@@ -206,17 +282,17 @@ export default function App() {
     }
   }
 
-  const saveOutput = async (bytes: Uint8Array, defaultName: string) => {
+  const saveOutput = async (bytes: Uint8Array, defaultName: string): Promise<boolean> => {
     try {
       if (window.electronAPI && typeof window.electronAPI.saveFileBuffer === 'function') {
         const outBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
         const saved = await window.electronAPI.saveFileBuffer(defaultName, outBuffer)
         if (saved) {
-          setStatus('Dokumen berhasil disimpan!')
-          return
+          setStatus(`Berhasil disimpan sebagai ${defaultName}`)
+          return true
         } else {
           setStatus('Penyimpanan dibatalkan')
-          return
+          return false
         }
       }
     } catch (e) {
@@ -231,7 +307,8 @@ export default function App() {
     a.download = defaultName
     a.click()
     URL.revokeObjectURL(url)
-    setStatus('Dokumen berhasil didownload')
+    setStatus(`Berhasil didownload sebagai ${defaultName}`)
+    return true
   }
 
   const getItemCount = () => {

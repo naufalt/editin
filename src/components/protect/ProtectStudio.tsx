@@ -23,19 +23,20 @@ export const ProtectStudio: React.FC<ProtectStudioProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0C0D12] overflow-hidden select-none">
       {/* Top Header */}
-      <div className="h-14 border-b border-white/5 px-6 flex items-center justify-between bg-[#13151D]">
+      <div className="h-14 border-b border-white/5 px-6 flex items-center justify-between bg-[#13151D] shrink-0">
         <div className="flex items-center space-x-2">
           <ShieldCheck size={17} className="text-indigo-400" />
           <span className="text-sm font-bold text-slate-100">Kunci Sandi & Keamanan Dokumen</span>
         </div>
         <span className="text-xs text-slate-400 font-mono">
-          Enkripsi AES Dokumen
+          Enkripsi AES/RC4 128-bit
         </span>
       </div>
 
       {/* Main Settings */}
-      <div className="flex-1 overflow-y-auto p-8 max-w-xl mx-auto w-full flex flex-col justify-center">
-        <div className="bg-[#13151D] border border-white/5 rounded-2xl p-6 shadow-xl space-y-6">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-xl mx-auto w-full my-auto">
+          <div className="bg-[#13151D] border border-white/5 rounded-2xl p-6 shadow-xl space-y-6">
           {/* File summary */}
           <div className="flex items-center space-x-3 p-3.5 rounded-xl bg-white/5 border border-white/5">
             <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
@@ -120,6 +121,7 @@ export const ProtectStudio: React.FC<ProtectStudioProps> = ({
           <p className="text-[11px] text-slate-400 leading-relaxed">
             Dokumen yang dikunci sandi memerlukan kata sandi ini setiap kali dibuka di aplikasi PDF mana pun (Adobe Acrobat, Google Chrome, Microsoft Edge, dll.).
           </p>
+          </div>
         </div>
       </div>
     </div>
