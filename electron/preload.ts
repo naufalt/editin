@@ -11,4 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openPdfDialog: () => ipcRenderer.invoke('dialog:open-pdf'),
   readFileBuffer: (filePath: string) => ipcRenderer.invoke('fs:read-file-buffer', filePath),
   saveFileBuffer: (defaultName: string, buffer: ArrayBuffer) => ipcRenderer.invoke('fs:save-file-buffer', defaultName, buffer),
+
+  // Shell integration
+  showItemInFolder: (fullPath: string) => ipcRenderer.invoke('shell:show-item-in-folder', fullPath),
+  openPath: (fullPath: string) => ipcRenderer.invoke('shell:open-path', fullPath),
 })

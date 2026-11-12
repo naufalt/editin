@@ -5,7 +5,9 @@ export interface ElectronAPI {
   isMaximized: () => Promise<boolean>
   openPdfDialog: () => Promise<string[] | null>
   readFileBuffer: (filePath: string) => Promise<ArrayBuffer>
-  saveFileBuffer: (defaultName: string, buffer: ArrayBuffer) => Promise<boolean>
+  saveFileBuffer: (defaultName: string, buffer: ArrayBuffer) => Promise<string | boolean | null>
+  showItemInFolder: (fullPath: string) => Promise<boolean>
+  openPath: (fullPath: string) => Promise<boolean>
 }
 
 declare global {

@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 
 let win: BrowserWindow | null = null
 
@@ -8,8 +9,8 @@ function createWindow() {
   const distPath = path.join(__dirname, '../dist')
   
   win = new BrowserWindow({
-    width: 1040,
-    height: 680,
+    width: 1060,
+    height: 700,
     minWidth: 860,
     minHeight: 560,
     center: true,
@@ -60,18 +61,35 @@ function createWindow() {
 
   ipcMain.handle('fs:read-file-buffer', async (_event, filePath: string) => {
     const buf = await fs.readFile(filePath)
-    return buf.buffer
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
   })
 
   ipcMain.handle('fs:save-file-buffer', async (_event, defaultName: string, buffer: ArrayBuffer) => {
-    if (!win) return false
+    if (!win) return null
     const result = await dialog.showSaveDialog(win, {
       defaultPath: defaultName,
       filters: [{ name: 'PDF Documents', extensions: ['pdf'] }],
     })
-    if (result.canceled || !result.filePath) return false
+    if (result.canceled || !result.filePath) return null
     await fs.writeFile(result.filePath, Buffer.from(buffer))
-    return true
+    return result.filePath
+  })
+
+  // Shell open actions
+  ipcMain.handle('shell:show-item-in-folder', async (_event, fullPath: string) => {
+    if (fullPath && fsSync.existsSync(fullPath)) {
+      shell.showItemInFolder(fullPath)
+      return true
+    }
+    return false
+  })
+
+  ipcMain.handle('shell:open-path', async (_event, fullPath: string) => {
+    if (fullPath && fsSync.existsSync(fullPath)) {
+      const err = await shell.openPath(fullPath)
+      return err === ''
+    }
+    return false
   })
 
   if (process.env.VITE_DEV_SERVER_URL) {

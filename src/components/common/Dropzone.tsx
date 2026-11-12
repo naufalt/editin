@@ -1,5 +1,6 @@
-import React from 'react'
-import { UploadCloud, FileText } from 'lucide-react'
+import React, { useRef } from 'react'
+import { UploadCloud, FileText, Sparkles, ShieldCheck } from 'lucide-react'
+import { useAppSettings } from '../../store/settingsStore'
 
 interface DropzoneProps {
   onFilesSelected: (files: FileList | null) => void
@@ -11,91 +12,84 @@ interface DropzoneProps {
 export const Dropzone: React.FC<DropzoneProps> = ({
   onFilesSelected,
   onBrowseClick,
-  title = "Tarik & Letakkan File PDF di Sini",
-  subtitle = "Semua dokumen diproses 100% offline langsung di komputer Anda"
+  title,
+  subtitle,
 }) => {
-  const [isDragging, setIsDragging] = React.useState(false)
-  const inputRef = React.useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const { isDark, t } = useAppSettings()
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
-    setIsDragging(true)
-  }
-
-  const handleDragLeave = () => {
-    setIsDragging(false)
+    e.stopPropagation()
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
-    setIsDragging(false)
+    e.stopPropagation()
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       onFilesSelected(e.dataTransfer.files)
     }
   }
 
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      onFilesSelected(e.target.files)
-    }
-  }
-
-  const handleClickArea = () => {
-    if (window.electronAPI) {
-      onBrowseClick?.()
+  const handleClick = () => {
+    if (onBrowseClick) {
+      onBrowseClick()
     } else {
-      inputRef.current?.click()
+      fileInputRef.current?.click()
     }
   }
 
   return (
     <div
       onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onClick={handleClickArea}
-      className={`relative w-full border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
-        isDragging
-          ? 'border-indigo-500 bg-indigo-500/10 scale-[0.99]'
-          : 'border-white/10 hover:border-indigo-500/40 bg-[#13151D]/60 hover:bg-[#13151D]'
+      onClick={handleClick}
+      className={`w-full max-w-2xl border-2 border-dashed rounded-3xl p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200 group relative overflow-hidden select-none ${
+        isDark 
+          ? 'border-white/10 hover:border-indigo-500/50 bg-[#13151D]/60 hover:bg-[#13151D]' 
+          : 'border-slate-300 hover:border-indigo-400 bg-white hover:bg-slate-50/70 shadow-sm'
       }`}
     >
       <input
-        ref={inputRef}
+        ref={fileInputRef}
         type="file"
         accept="application/pdf"
-        multiple
         className="hidden"
-        onChange={handleFileInput}
+        onChange={(e) => onFilesSelected(e.target.files)}
       />
 
-      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600/20 to-violet-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mb-4 shadow-lg shadow-indigo-500/10">
-        <UploadCloud size={28} />
+      {/* Decorative Icon */}
+      <div className="relative mb-4">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-500 group-hover:scale-105 group-hover:rotate-1 transition-transform">
+          <UploadCloud size={28} />
+        </div>
+        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
+          <FileText size={13} />
+        </div>
       </div>
 
-      <h3 className="text-base font-semibold text-slate-100 mb-1">
-        {title}
+      <h3 className={`text-base font-bold tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+        {title || t.dropzoneTitle}
       </h3>
-      <p className="text-xs text-slate-400 max-w-sm mb-5">
-        {subtitle}
+      <p className={`text-xs mt-1.5 max-w-md leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+        {subtitle || t.dropzoneSubtitle}
       </p>
 
-      <div className="flex items-center space-x-3">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            handleClickArea()
-          }}
-          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl cursor-pointer transition-colors shadow-lg shadow-indigo-600/20 flex items-center space-x-2 active:scale-95"
-        >
-          <FileText size={15} />
-          <span>Buka Berkas PDF</span>
-        </button>
-      </div>
+      {/* Action CTA Button */}
+      <button
+        type="button"
+        className="mt-6 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition-all flex items-center space-x-2 active:scale-95"
+      >
+        <Sparkles size={14} />
+        <span>{t.dropzoneBrowse}</span>
+      </button>
 
-      <div className="mt-4 text-[10px] text-slate-400 font-mono">
-        100% Offline Processing • Tidak Ada Data yang Keluar dari Komputer
+      {/* Offline Badge */}
+      <div className={`mt-6 flex items-center space-x-1.5 text-[11px] font-mono ${
+        isDark ? 'text-slate-500' : 'text-slate-400'
+      }`}>
+        <ShieldCheck size={14} className="text-emerald-500" />
+        <span>100% Offline • Zero-Upload Data Guarantee</span>
       </div>
     </div>
   )
