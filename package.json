@@ -1,7 +1,7 @@
 {
   "name": "editin",
   "version": "1.0.0",
-  "description": "EditIn // Fast, Private & Offline PDF Editor and Document Studio",
+  "description": "EditIn - Fast, Private, Offline PDF Editor and Document Studio",
   "author": "Ngoods",
   "main": "dist-electron/main.js",
   "scripts": {
