@@ -14,6 +14,8 @@ import { ProtectStudio } from './components/protect/ProtectStudio'
 import { ResultModal, ResultModalData } from './components/common/ResultModal'
 import { LoadingOverlay } from './components/common/LoadingOverlay'
 import { DevLogDrawer } from './components/common/DevLogDrawer'
+import { GuideView } from './components/guide/GuideView'
+import { SettingsView } from './components/settings/SettingsView'
 import { useDocumentStore } from './store/documentStore'
 import { useAppSettings } from './store/settingsStore'
 import { useDevLogStore } from './store/devLogStore'
@@ -539,7 +541,7 @@ export default function App() {
         />
 
         <main className={`flex-1 flex flex-col overflow-hidden transition-colors duration-150 ${
-          isDark ? 'bg-[#13151D]/30' : 'bg-[#F8F9FB]'
+          isDark ? 'bg-[#0D0F14]' : 'bg-[#EEF2F6]'
         }`}>
           {activeTab === 'dashboard' && (
             <DashboardHome
@@ -549,6 +551,10 @@ export default function App() {
               pageCount={pages.length}
             />
           )}
+
+          {activeTab === 'guide' && <GuideView onSelectTab={setActiveTab} />}
+
+          {activeTab === 'settings' && <SettingsView />}
 
           {activeTab === 'merge' && (
             <MergeStudio
@@ -560,7 +566,7 @@ export default function App() {
             />
           )}
 
-          {activeTab !== 'dashboard' && activeTab !== 'merge' && (!currentPdfBuffer || pages.length === 0) && (
+          {activeTab !== 'dashboard' && activeTab !== 'merge' && activeTab !== 'guide' && activeTab !== 'settings' && (!currentPdfBuffer || pages.length === 0) && (
             <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-4xl mx-auto w-full">
               <Dropzone
                 onFilesSelected={handleFilesSelected}

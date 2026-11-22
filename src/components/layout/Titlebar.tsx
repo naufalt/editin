@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
-import { Minus, Square, X, Copy } from 'lucide-react'
+import { Minus, Square, X, Copy, DownloadCloud } from 'lucide-react'
 import { useAppSettings } from '../../store/settingsStore'
+import { UpdateModal } from '../common/UpdateModal'
 
 export const Titlebar: React.FC = () => {
   const [isMax, setIsMax] = useState(false)
-  const { isDark } = useAppSettings()
+  const [showUpdateModal, setShowUpdateModal] = useState(false)
+  const { isDark, language } = useAppSettings()
 
   useEffect(() => {
     window.electronAPI?.isMaximized().then(setIsMax).catch(() => {})
@@ -18,33 +20,78 @@ export const Titlebar: React.FC = () => {
   }
   const handleClose = () => window.electronAPI?.close()
 
+  const isMac = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('mac')
+
   return (
-    <div className={`h-10 w-full border-b flex items-center justify-between select-none z-50 relative transition-colors duration-150 ${
-      isDark ? 'bg-[#0C0D12] border-white/5' : 'bg-[#FFFFFF] border-slate-200 shadow-sm'
+    <header className={`h-12 w-full border-b flex items-center justify-between select-none z-50 relative transition-colors duration-150 ${
+      isDark ? 'bg-[#11131A] border-slate-800/80' : 'bg-[#E3E8F0] border-slate-300/70'
     }`}>
-      {/* Draggable Region */}
-      <div 
-        className="flex-1 h-full flex items-center px-4 space-x-3 cursor-default"
+      {/* Left: Brand Identity */}
+      <div
+        className={`flex items-center gap-2.5 cursor-default ${isMac ? 'pl-20 pr-4' : 'px-4'}`}
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        {/* Brand Badge */}
-        <div className="flex items-center space-x-2">
-          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-md shadow-indigo-500/20">
-            <span className="text-[10px] font-black text-white leading-none">E</span>
-          </div>
-          <span className={`text-xs font-bold tracking-wider ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
-            EDITIN <span className={`font-mono text-[10px] ml-1 px-1.5 py-0.5 rounded ${
-              isDark ? 'text-indigo-400 bg-indigo-500/10 border border-indigo-500/20' : 'text-indigo-600 bg-indigo-50 border border-indigo-200'
-            }`}>// DOC STUDIO</span>
+        <div
+          className={`w-7 h-7 rounded-xl p-1 border flex items-center justify-center shadow-sm ${
+            isDark ? 'bg-[#181B24] border-slate-800' : 'bg-[#F8FAFC] border-slate-300/80'
+          }`}
+        >
+          {/* Redesigned EditIn Logo (Document + Edit Nib) */}
+          <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+            <defs>
+              <linearGradient id="editinLogoGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#6366F1" />
+                <stop offset="100%" stopColor="#8B5CF6" />
+              </linearGradient>
+            </defs>
+            <rect x="3" y="2" width="14" height="19" rx="3" fill="url(#editinLogoGrad)" fillOpacity="0.18" stroke="url(#editinLogoGrad)" strokeWidth="1.8" />
+            <path d="M7 8H13M7 12H11" stroke="url(#editinLogoGrad)" strokeWidth="1.8" strokeLinecap="round" />
+            <path d="M14.5 14.5L19.5 9.5C20.2 8.8 21.3 8.8 22 9.5C22.7 10.2 22.7 11.3 22 12L17 17L13.5 18L14.5 14.5Z" fill="url(#editinLogoGrad)" />
+          </svg>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`font-semibold text-sm tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+            EditIn
+          </span>
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-md font-mono border font-semibold ${
+              isDark
+                ? 'bg-[#181B24] text-indigo-300 border-slate-800'
+                : 'bg-[#F8FAFC] text-indigo-600 border-slate-300/70'
+            }`}
+          >
+            v1.0.0
           </span>
         </div>
       </div>
 
+      {/* Center Drag Handle Indicator */}
+      <div
+        className="flex-1 h-full flex items-center justify-center"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        <div className={`w-10 h-1 rounded-full ${isDark ? 'bg-slate-800' : 'bg-slate-300/90'}`} />
+      </div>
+
       {/* Non-draggable Window Control Buttons */}
       <div 
-        className="flex items-center h-full"
+        className="flex items-center h-full px-2 gap-1"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
+        <button
+          onClick={() => setShowUpdateModal(true)}
+          className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-[11px] font-medium transition-colors ${
+            isDark
+              ? 'text-slate-400 hover:bg-slate-800/70'
+              : 'text-slate-600 hover:bg-slate-300/60'
+          }`}
+          title={language === 'id' ? 'Cek Pembaruan' : 'Check for Updates'}
+        >
+          <DownloadCloud className="w-3.5 h-3.5 text-indigo-500" />
+          <span>{language === 'id' ? 'Pembaruan' : 'Updates'}</span>
+        </button>
+
+        <div className={`w-px h-3.5 mx-1 ${isDark ? 'bg-slate-800' : 'bg-slate-300'}`} />
         <button
           onClick={handleMinimize}
           className={`h-full px-4 transition-colors flex items-center justify-center ${
@@ -71,6 +118,7 @@ export const Titlebar: React.FC = () => {
           <X size={14} />
         </button>
       </div>
-    </div>
+      <UpdateModal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} />
+    </header>
   )
 }
