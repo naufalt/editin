@@ -36,18 +36,11 @@ export const Titlebar: React.FC = () => {
             isDark ? 'bg-[#181B24] border-slate-800' : 'bg-[#F8FAFC] border-slate-300/80'
           }`}
         >
-          {/* Redesigned EditIn Logo (Document + Edit Nib) */}
-          <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
-            <defs>
-              <linearGradient id="editinLogoGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#6366F1" />
-                <stop offset="100%" stopColor="#8B5CF6" />
-              </linearGradient>
-            </defs>
-            <rect x="3" y="2" width="14" height="19" rx="3" fill="url(#editinLogoGrad)" fillOpacity="0.18" stroke="url(#editinLogoGrad)" strokeWidth="1.8" />
-            <path d="M7 8H13M7 12H11" stroke="url(#editinLogoGrad)" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M14.5 14.5L19.5 9.5C20.2 8.8 21.3 8.8 22 9.5C22.7 10.2 22.7 11.3 22 12L17 17L13.5 18L14.5 14.5Z" fill="url(#editinLogoGrad)" />
-          </svg>
+          <img
+            src="./app-icon.png"
+            alt="EditIn"
+            className="w-full h-full object-contain rounded-lg"
+          />
         </div>
         <div className="flex items-center gap-2">
           <span className={`font-semibold text-sm tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
