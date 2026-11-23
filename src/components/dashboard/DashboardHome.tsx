@@ -81,7 +81,6 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
       desc: language === 'id' ? 'Ubah PDF digital menjadi seperti hasil scan printer asli (miring alami & tekstur kertas).' : 'Convert crisp vector PDF into authentic flatbed scanner look with paper textures.',
       icon: Printer,
       color: 'from-teal-600 to-emerald-600',
-      tag: language === 'id' ? 'Inovasi' : 'New',
     },
     {
       tab: 'protect' as TabType,

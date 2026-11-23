@@ -116,14 +116,9 @@ export const ScanSimulatorStudio: React.FC<ScanSimulatorStudioProps> = ({
             <Printer size={16} />
           </div>
           <div>
-            <div className="flex items-center space-x-2">
-              <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
-                {language === 'id' ? 'Simulator Hasil Scan Printer' : 'Printer Scanner Simulator'}
-              </span>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                Inovasi
-              </span>
-            </div>
+            <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+              {language === 'id' ? 'Simulator Hasil Scan Printer' : 'Printer Scanner Simulator'}
+            </span>
           </div>
         </div>
 
