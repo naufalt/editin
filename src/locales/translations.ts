@@ -64,6 +64,7 @@ export const translations = {
     btnSplitN: 'Pecah Tiap {n} Halaman',
     btnSignSave: 'Simpan Dokumen Bertanda Tangan',
     btnCompressSave: 'Kompres & Simpan',
+    btnScanSave: 'Buat & Simpan PDF Hasil Scan',
     btnProtectSave: 'Kunci Dokumen & Simpan',
     processing: 'Memproses...',
 
@@ -172,6 +173,7 @@ export const translations = {
     btnSplitN: 'Split Every {n} Pages',
     btnSignSave: 'Save Signed Document',
     btnCompressSave: 'Compress & Save',
+    btnScanSave: 'Generate & Save Scanned PDF',
     btnProtectSave: 'Lock & Save Document',
     processing: 'Processing...',
 

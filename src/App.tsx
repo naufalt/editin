@@ -11,6 +11,7 @@ import { SplitStudio } from './components/split/SplitStudio'
 import { SignStampStudio } from './components/sign/SignStampStudio'
 import { CompressStudio } from './components/compress/CompressStudio'
 import { ProtectStudio } from './components/protect/ProtectStudio'
+import { ScanSimulatorStudio } from './components/scan/ScanSimulatorStudio'
 import { ResultModal, ResultModalData } from './components/common/ResultModal'
 import { LoadingOverlay } from './components/common/LoadingOverlay'
 import { DevLogDrawer } from './components/common/DevLogDrawer'
@@ -22,6 +23,7 @@ import { useDevLogStore } from './store/devLogStore'
 import { loadPdfPages, exportModifiedPdf } from './utils/pdfEngine'
 import { MergeItem, mergePdfDocuments, splitPdfByRange, splitPdfEveryNPages } from './utils/mergeSplitEngine'
 import { CompressQuality, compressPdfDocument, encryptPdfDocument } from './utils/compressProtectEngine'
+import { ScanSimulatorOptions, DEFAULT_SCAN_OPTIONS, generateScannedPdf } from './utils/scanSimulatorEngine'
 import { EditableTextBlock } from './utils/textExtractEngine'
 
 export default function App() {
@@ -62,6 +64,10 @@ export default function App() {
   // Compress state
   const [compressQuality, setCompressQuality] = useState<CompressQuality>('balanced')
   const [compressProgress, setCompressProgress] = useState<number | null>(null)
+
+  // Scan Simulator state
+  const [scanOptions, setScanOptions] = useState<ScanSimulatorOptions>(DEFAULT_SCAN_OPTIONS)
+  const [scanProgress, setScanProgress] = useState<number | null>(null)
 
   // Protect state
   const [protectPassword, setProtectPassword] = useState('')
@@ -169,7 +175,7 @@ export default function App() {
   }
 
   // Build descriptive output filename reflecting all operations performed on the document
-  const buildSmartExportFileName = (currentAction: 'merge' | 'split' | 'compress' | 'protect' | 'editor' | 'sign' | 'pages', extraSuffix?: string): string => {
+  const buildSmartExportFileName = (currentAction: 'merge' | 'split' | 'compress' | 'scan' | 'protect' | 'editor' | 'sign' | 'pages', extraSuffix?: string): string => {
     const rawBase = (fileName || 'dokumen').replace(/\.pdf$/i, '')
 
     const tags: string[] = []
@@ -191,6 +197,9 @@ export default function App() {
     }
     if (currentAction === 'compress') {
       if (!rawBase.includes('_compressed')) tags.push('compressed')
+    }
+    if (currentAction === 'scan') {
+      if (!rawBase.includes('_scanned')) tags.push('scanned')
     }
     if (currentAction === 'protect') {
       if (!rawBase.includes('_locked')) tags.push('locked')
@@ -418,7 +427,63 @@ export default function App() {
         return
       }
 
-      // 4. KUNCI SANDI (PROTECT)
+      // 4. SCANNER SIMULATOR (Hasil Scan Fisik Printer)
+      if (activeTab === 'scan') {
+        if (!currentPdfBuffer) return
+        addLog('info', `Mulai membuat PDF simulasi hasil scan: ${fileName || 'Dokumen'}`)
+        setOverlayState({
+          isOpen: true,
+          title: 'Memproses Efek Hasil Scan...',
+          status: 'Menerapkan tekstur kertas & kemiringan optik...',
+          subStatus: `Menyiapkan ${pages.length} halaman dokumen...`,
+          progress: 10,
+        })
+        setScanProgress(10)
+        setStatus('Memproses efek scan dokumen...')
+
+        const hasPendingChanges =
+          editedBlocks.some((b) => b.isEdited) ||
+          annotations.length > 0 ||
+          pages.some((p, idx) => p.rotation !== 0 || p.pageIndex !== idx)
+        let sourceBuffer = currentPdfBuffer
+        if (hasPendingChanges && pages.length > 0) {
+          addLog('info', 'Menerapkan editan / coretan sebelum konversi scan...')
+          const modBytes = await exportModifiedPdf(currentPdfBuffer, pages, annotations, editedBlocks)
+          sourceBuffer = modBytes.buffer.slice(modBytes.byteOffset, modBytes.byteOffset + modBytes.byteLength) as ArrayBuffer
+        }
+
+        const scannedBytes = await generateScannedPdf(sourceBuffer, scanOptions, (prog) => {
+          setScanProgress(prog.percent)
+          setOverlayState({
+            isOpen: true,
+            title: 'Memproses Efek Hasil Scan...',
+            status: `Memindai halaman ${prog.current} dari ${prog.total}...`,
+            subStatus: 'Mensimulasikan pencahayaan flatbed scanner...',
+            progress: prog.percent,
+            pageStatus: { currentPage: prog.current, totalPages: prog.total },
+          })
+          addLog('info', `[Scan Simulator] ${prog.percent}%: Halaman ${prog.current}/${prog.total}`)
+        })
+
+        const name = buildSmartExportFileName('scan')
+        setOverlayState((prev) => ({ ...prev, status: 'Menyimpan berkas...', progress: 98 }))
+        const savedPath = await saveOutput(scannedBytes, name)
+        setScanProgress(null)
+        if (savedPath) {
+          setStatus('Dokumen hasil scan berhasil dibuat!')
+          addLog('success', `Dokumen hasil scan disimpan: ${name}`)
+          setModalData({
+            isOpen: true,
+            title: 'Hasil Scan Berhasil Dibuat!',
+            message: 'Dokumen PDF Anda kini memiliki tampilan autentik seperti baru saja dipindai dari mesin scanner fisik.',
+            fileName: name,
+            filePath: savedPath.includes('\\') || savedPath.includes('/') ? savedPath : undefined,
+          })
+        }
+        return
+      }
+
+      // 5. KUNCI SANDI (PROTECT)
       if (activeTab === 'protect') {
         if (!currentPdfBuffer) return
         if (protectPassword.length < 4) {
@@ -514,6 +579,7 @@ export default function App() {
     }
     if (activeTab === 'sign') return t.btnSignSave
     if (activeTab === 'compress') return t.btnCompressSave
+    if (activeTab === 'scan') return t.btnScanSave
     if (activeTab === 'protect') return t.btnProtectSave
     return t.btnSavePdf
   }
@@ -613,6 +679,17 @@ export default function App() {
                   onSelectQuality={setCompressQuality}
                   isCompressing={isLoading}
                   compressProgress={compressProgress}
+                />
+              )}
+              {activeTab === 'scan' && (
+                <ScanSimulatorStudio
+                  pdfBuffer={currentPdfBuffer}
+                  fileName={fileName}
+                  totalPageCount={pages.length}
+                  options={scanOptions}
+                  onOptionsChange={setScanOptions}
+                  isProcessing={isLoading}
+                  progressPercent={scanProgress}
                 />
               )}
               {activeTab === 'protect' && (

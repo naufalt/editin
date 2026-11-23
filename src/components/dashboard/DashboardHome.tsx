@@ -6,6 +6,7 @@ import {
   Split, 
   PenTool, 
   Minimize2, 
+  Printer,
   ShieldCheck, 
   UploadCloud,
   FileText,
@@ -28,7 +29,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
   fileName,
   pageCount,
 }) => {
-  const { isDark, t } = useAppSettings()
+  const { isDark, language, t } = useAppSettings()
 
   const featureCards = [
     {
@@ -73,6 +74,14 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
       desc: t.cardCompressDesc,
       icon: Minimize2,
       color: 'from-rose-600 to-red-600',
+    },
+    {
+      tab: 'scan' as TabType,
+      title: language === 'id' ? 'Simulator Hasil Scan Fisik' : 'Physical Scan Simulator',
+      desc: language === 'id' ? 'Ubah PDF digital menjadi seperti hasil scan printer asli (miring alami & tekstur kertas).' : 'Convert crisp vector PDF into authentic flatbed scanner look with paper textures.',
+      icon: Printer,
+      color: 'from-teal-600 to-emerald-600',
+      tag: language === 'id' ? 'Inovasi' : 'New',
     },
     {
       tab: 'protect' as TabType,
