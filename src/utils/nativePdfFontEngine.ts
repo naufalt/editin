@@ -132,11 +132,11 @@ export function extractPageNativeFonts(doc: PDFDocument, page: PDFPage): NativeP
       const charToGlyph = new Map<string, NativeFontGlyphEntry>()
 
       // Check ToUnicode CMap first
-      const toUnicodeRef = fd.lookup(PDFName.of('ToUnicode'))
+      const toUnicodeObj = doc.context.lookup(fd.lookup(PDFName.of('ToUnicode')))
       let rawCharMap = new Map<string, { code: number; hexLen: number }>()
-      if (toUnicodeRef) {
+      if (toUnicodeObj) {
         try {
-          const decodedBytes = decodePDFRawStream(toUnicodeRef as any).decode()
+          const decodedBytes = decodePDFRawStream(toUnicodeObj as any).decode()
           let cmapStr = ''
           for (let idx = 0; idx < decodedBytes.length; idx++) {
             cmapStr += String.fromCharCode(decodedBytes[idx])

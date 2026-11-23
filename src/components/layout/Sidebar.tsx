@@ -7,7 +7,6 @@ import {
   Split,
   PenTool,
   Minimize2,
-  Printer,
   ShieldCheck,
   BookOpen,
   Sliders,
@@ -27,7 +26,6 @@ export type TabType =
   | 'split'
   | 'sign'
   | 'compress'
-  | 'scan'
   | 'protect'
   | 'guide'
   | 'settings'
@@ -55,7 +53,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'split' as TabType, label: t.navSplit, icon: Split },
     { id: 'sign' as TabType, label: t.navSign, icon: PenTool },
     { id: 'compress' as TabType, label: t.navCompress, icon: Minimize2 },
-    { id: 'scan' as TabType, label: language === 'id' ? 'Hasil Scan' : 'Scan Effect', icon: Printer },
     { id: 'protect' as TabType, label: t.navProtect, icon: ShieldCheck },
   ]
 

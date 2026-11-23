@@ -652,6 +652,9 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
                         setSelectedBlockId(null)
                       }
                     }}
+                    onBlur={() => {
+                      setSelectedBlockId(null)
+                    }}
                     style={{
                       fontSize: `${exactFontSizePx}px`,
                       lineHeight: '1',

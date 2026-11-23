@@ -56,11 +56,6 @@ export const SignStampStudio: React.FC = () => {
   // Stamp selection
   const handleStampSelect = (stamp: StampPreset) => {
     const stampDataUrl = generateStampDataUrl(stamp.label, stamp.hexColor)
-    handleCustomStampReady(stampDataUrl)
-  }
-
-  // Custom uploaded or generated stamp ready
-  const handleCustomStampReady = (dataUrl: string) => {
     const newAnn: CanvasAnnotation = {
       id: `stamp_${Date.now()}`,
       pageIndex: activePageIndex,
@@ -68,7 +63,7 @@ export const SignStampStudio: React.FC = () => {
       x: 35,
       y: 30,
       width: 28,
-      imageDataUrl: dataUrl,
+      imageDataUrl: stampDataUrl,
     }
     addAnnotation(newAnn)
     setSelectedAnnotationId(newAnn.id)
@@ -265,11 +260,11 @@ export const SignStampStudio: React.FC = () => {
       {/* Stamp Picker Modal */}
       {showStampModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#13151D] border border-white/10 rounded-2xl p-6 shadow-2xl max-w-lg w-full space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-white/5">
+          <div className="bg-[#13151D] border border-white/10 rounded-2xl p-6 shadow-2xl max-w-md w-full space-y-4">
+            <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-2">
                 <StampIcon size={16} className="text-amber-400" />
-                <span>Pilih atau Buat Cap / Stempel</span>
+                <span>Pilih Cap / Stempel Resmi</span>
               </h3>
               <button
                 onClick={() => setShowStampModal(false)}
@@ -279,10 +274,7 @@ export const SignStampStudio: React.FC = () => {
               </button>
             </div>
 
-            <StampPicker
-              onSelectStamp={handleStampSelect}
-              onCustomStampImageReady={handleCustomStampReady}
-            />
+            <StampPicker onSelectStamp={handleStampSelect} />
           </div>
         </div>
       )}
