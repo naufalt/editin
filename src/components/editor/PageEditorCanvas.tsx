@@ -605,7 +605,8 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
           {/* 2. True 1:1 Native Text Editing Layer */}
           {currentPageBlocks.map((block) => {
             const isSelected = block.id === selectedBlockId
-            // Only show the HTML input while actively selected & typing; once unselected, the live PDF vector canvas underneath shows the 100% native PDF glyphs!
+            const isEdited = block.isEdited
+            // If block is selected, show active input. If block was edited, show styled edited text overlay over whiteout bg so changes are IMMEDIATELY visible without waiting for async vector re-render!
             const showEditor = isSelected
 
             // Exact 1:1 pixel font size matching the PDF font metric
@@ -632,7 +633,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
                   top: `${block.y}%`,
                   minWidth: `${block.width}%`,
                   height: `${block.height}%`,
-                  backgroundColor: showEditor ? block.bgColor : 'transparent',
+                  backgroundColor: showEditor || isEdited ? (block.bgColor || '#ffffff') : 'transparent',
                 }}
                 className={`absolute z-10 flex items-baseline transition-shadow ${
                   showEditor
@@ -641,7 +642,7 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
                 } ${isSelected ? 'outline outline-1 outline-dashed outline-indigo-600 z-30' : ''}`}
                 title={showEditor ? undefined : `Klik untuk edit teks: "${block.str}"`}
               >
-                {showEditor && (
+                {showEditor ? (
                   <input
                     type="text"
                     autoFocus={isSelected}
@@ -651,6 +652,10 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
                       if (e.key === 'Enter' || e.key === 'Escape') {
                         setSelectedBlockId(null)
                       }
+                    }}
+                    onBlur={() => {
+                      // Also close editor on blur so clicking anywhere commits the edit
+                      setSelectedBlockId(null)
                     }}
                     style={{
                       fontSize: `${exactFontSizePx}px`,
@@ -665,7 +670,23 @@ export const PageEditorCanvas: React.FC<PageEditorCanvasProps> = ({
                     }}
                     className="h-full border-none outline-none p-0 m-0 tracking-normal"
                   />
-                )}
+                ) : isEdited ? (
+                  <span
+                    style={{
+                      fontSize: `${exactFontSizePx}px`,
+                      lineHeight: '1',
+                      fontFamily: cssFontFamily,
+                      fontWeight: block.isBold ? 700 : 400,
+                      fontStyle: block.isItalic ? 'italic' : 'normal',
+                      color: block.textColor || '#000000',
+                      backgroundColor: block.bgColor || '#ffffff',
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {block.str}
+                  </span>
+                ) : null}
               </div>
             )
           })}
